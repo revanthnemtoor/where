@@ -476,7 +476,16 @@ fn main() {
         use skim::prelude::*;
         use std::io::Cursor;
         
-        let mut keys: Vec<String> = path_cache.keys().cloned().collect();
+        let mut keys: Vec<String> = path_cache.keys()
+            .filter(|k| {
+                if let Some(paths) = path_cache.get(*k) {
+                    paths.iter().any(|p| is_executable(p))
+                } else {
+                    false
+                }
+            })
+            .cloned()
+            .collect();
         keys.sort();
         keys.dedup();
         
@@ -662,6 +671,20 @@ fn main() {
                                 }
                                 m.security = Some(sec);
                             }
+                        } else {
+                            if cli.arch {
+                                m.arch = Some("Not an ELF binary".to_string());
+                            }
+                            if cli.security {
+                                m.security = Some("Not an ELF binary".to_string());
+                            }
+                            if cli.libs {
+                                m.libs = Some(vec!["(Not an ELF binary)".to_string()]);
+                            }
+                        }
+                    } else {
+                        if cli.arch || cli.security || cli.libs {
+                            m.arch = Some("Unreadable".to_string());
                         }
                     }
                 }
