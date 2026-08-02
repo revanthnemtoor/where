@@ -1,5 +1,6 @@
 [package]
 name = "where_cmd"
+authors = ["Revanth Reddy Nemtoor"]
 version = "1.1.0"
 edition = "2024"
 description = "A modern, fast replacement for the which and where commands on Linux."

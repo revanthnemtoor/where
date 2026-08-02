@@ -26,8 +26,7 @@ struct Config {
 }
 
 #[derive(Parser)]
-#[command(name = "where", version = "1.1.0", author = "Revanth Reddy Nemtoor")]
-#[command(about = "A modern replacement for which/where.")]
+#[command(name = env!("CARGO_PKG_NAME"), version = env!("CARGO_PKG_VERSION"), about = env!("CARGO_PKG_DESCRIPTION"), author = env!("CARGO_PKG_AUTHORS"))]
 struct Cli {
     /// Print all matches (default behavior)
     #[arg(short = 'a', long)]
@@ -305,11 +304,11 @@ fn main() {
     }
 
     if cli.about {
-        println!("{} {}\n{}", "where".bold().green(), "1.1.0".cyan(), "A modern replacement for which/where.".italic());
+        println!("{} {}\n{}", "where".bold().green(), env!("CARGO_PKG_VERSION").cyan(), env!("CARGO_PKG_DESCRIPTION").italic());
         println!();
-        println!("{:<10} : {}", "Author".bold(), "Revanth Reddy Nemtoor".yellow());
-        println!("{:<10} : {}", "License".bold(), "MIT".yellow());
-        println!("{:<10} : {}", "Repository".bold(), "https://github.com/revanthnemtoor/where".blue());
+        println!("{:<10} : {}", "Author".bold(), env!("CARGO_PKG_AUTHORS").yellow());
+        println!("{:<10} : {}", "License".bold(), env!("CARGO_PKG_LICENSE").yellow());
+        println!("{:<10} : {}", "Repository".bold(), env!("CARGO_PKG_REPOSITORY").blue());
         std::process::exit(0);
     }
 
