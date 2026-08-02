@@ -16,6 +16,8 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 use wait_timeout::ChildExt;
 
+mod container;
+
 #[derive(Deserialize, Default)]
 struct Config {
     color: Option<bool>,
@@ -156,6 +158,14 @@ struct Cli {
     #[arg(long)]
     init: Option<String>,
 
+    /// Search inside a Docker or Podman container image
+    #[arg(long)]
+    container: Option<String>,
+
+    /// Container engine to use (docker, podman) - defaults to auto-detect
+    #[arg(long)]
+    engine: Option<String>,
+
     /// Commands to search for
     #[arg(required_unless_present_any = ["about", "generate_completions", "doctor", "interactive", "init"])]
     commands: Vec<String>,
@@ -218,6 +228,7 @@ impl ShellContext {
         
         let mut alias = None;
         if let Ok(aliases_env) = std::env::var("WHERE_ALIASES") {
+            let aliases_env = aliases_env.replace("\\n", "\n");
             // Bash: alias cmd='...'
             // Zsh: cmd='...'
             // Fish: alias cmd '...'
@@ -239,6 +250,7 @@ impl ShellContext {
 
         let mut is_function = false;
         if let Ok(funcs_env) = std::env::var("WHERE_FUNCTIONS") {
+            let funcs_env = funcs_env.replace("\\n", "\n");
             for func in funcs_env.split_whitespace() {
                 if func == cmd {
                     is_function = true;
@@ -249,6 +261,7 @@ impl ShellContext {
 
         let mut is_builtin = false;
         if let Ok(builtins_env) = std::env::var("WHERE_BUILTINS") {
+            let builtins_env = builtins_env.replace("\\n", "\n");
             for builtin in builtins_env.split_whitespace() {
                 if builtin == cmd {
                     is_builtin = true;
@@ -259,6 +272,7 @@ impl ShellContext {
 
         let mut abbreviation = None;
         if let Ok(abbrs_env) = std::env::var("WHERE_ABBRS") {
+            let abbrs_env = abbrs_env.replace("\\n", "\n");
             // abbr --add cmd '...'
             for line in abbrs_env.lines() {
                 if line.contains(&format!(" {} ", cmd)) {
@@ -468,8 +482,28 @@ fn main() {
         std::process::exit(0);
     }
 
+    let container_engine = if let Some(image) = &cli.container {
+        match container::ContainerEngine::new(cli.engine.clone(), image.clone()) {
+            Ok(engine) => Some(engine),
+            Err(e) => {
+                eprintln!("{}", e.red());
+                std::process::exit(1);
+            }
+        }
+    } else {
+        None
+    };
+
     let start_time = Instant::now();
-    let path_var = if let Some(custom_path) = &cli.env_path {
+    let path_var = if let Some(engine) = &container_engine {
+        match engine.get_path_env() {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("{}", e.red());
+                std::process::exit(1);
+            }
+        }
+    } else if let Some(custom_path) = &cli.env_path {
         custom_path.clone()
     } else {
         env::var("PATH").unwrap_or_default()
@@ -481,9 +515,12 @@ fn main() {
     let mut shell_contexts: HashMap<String, ShellContext> = HashMap::new();
 
     // Cache PATH contents in parallel
-    let (path_cache, dirs_searched, files_examined) = paths
-        .par_iter()
-        .map(|dir| {
+    let (path_cache, dirs_searched, files_examined) = if container_engine.is_some() {
+        (HashMap::new(), paths.len(), 0)
+    } else {
+        paths
+            .par_iter()
+            .map(|dir| {
             let mut local_cache: HashMap<String, Vec<PathBuf>> = HashMap::new();
             let mut local_files = 0;
             let mut local_dirs = 0;
@@ -516,7 +553,8 @@ fn main() {
                 }
                 (cache1, d1 + d2, f1 + f2)
             },
-        );
+        )
+    };
 
     let elapsed = start_time.elapsed();
 
@@ -721,7 +759,77 @@ end"#);
             }
         }
 
-        if let Some(cmd_paths) = path_cache.get(cmd) {
+        if let Some(engine) = &container_engine {
+            let found_paths = engine.find_command_paths(&path_var, cmd);
+            for p in found_paths {
+                let mut m = Match {
+                    path: PathBuf::from(&p),
+                    canonical: None,
+                    aliases: Vec::new(),
+                    symlink_target: None,
+                    size: None,
+                    inode: None,
+                    owner: None,
+                    permissions: None,
+                    hash: None,
+                    package: None,
+                    version: None,
+                    filesystem: None,
+                    arch: None,
+                    security: None,
+                    libs: None,
+                    executable: true,
+                };
+                
+                // Deep inspection
+                if cli.hash || cli.show_size || cli.arch || cli.security || cli.libs || cli.verbose {
+                    if let Ok(bytes) = engine.extract_file(&p) {
+                        if cli.show_size || cli.verbose { m.size = Some(bytes.len() as u64); }
+                        if cli.hash {
+                            use sha2::{Sha256, Digest};
+                            let mut hasher = Sha256::new();
+                            hasher.update(&bytes);
+                            m.hash = Some(hex::encode(hasher.finalize()));
+                        }
+                        
+                        // Parse ELF from memory!
+                        if let Ok(elf) = goblin::Object::parse(&bytes) {
+                            if let goblin::Object::Elf(elf) = elf {
+                                if cli.arch || cli.verbose {
+                                    m.arch = Some(match elf.header.e_machine {
+                                        goblin::elf::header::EM_X86_64 => "x86_64".to_string(),
+                                        goblin::elf::header::EM_AARCH64 => "aarch64".to_string(),
+                                        goblin::elf::header::EM_386 => "x86".to_string(),
+                                        goblin::elf::header::EM_ARM => "arm".to_string(),
+                                        _ => format!("unknown({})", elf.header.e_machine),
+                                    });
+                                }
+                                if cli.security || cli.verbose {
+                                    let mut sec = Vec::new();
+                                    let is_pie = elf.header.e_type == goblin::elf::header::ET_DYN;
+                                    if is_pie { sec.push("PIE"); }
+                                    m.security = Some(sec.join(", "));
+                                }
+                                if cli.libs || cli.verbose {
+                                    m.libs = Some(elf.libraries.iter().map(|s| s.to_string()).collect());
+                                }
+                            }
+                        } else {
+                            if cli.arch { m.arch = Some("Not an ELF binary".to_string()); }
+                            if cli.security { m.security = Some("Not an ELF binary".to_string()); }
+                            if cli.libs { m.libs = Some(vec!["(Not an ELF binary)".to_string()]); }
+                        }
+                    } else {
+                        if cli.arch || cli.security || cli.libs || cli.hash || cli.show_size {
+                            m.arch = Some("Extraction failed".to_string());
+                        }
+                    }
+                }
+                
+                matches_for_cmd.push(m);
+                if cli.first_only { break; }
+            }
+        } else if let Some(cmd_paths) = path_cache.get(cmd) {
             for full_path in cmd_paths {
                 let executable = is_executable(full_path);
                 
@@ -896,7 +1004,9 @@ end"#);
                 // If shell wrapper is not active, give a hint
                 if std::env::var("WHERE_SHELL").is_err() && (cli.explain || cli.resolve || cmd == "cd" || cmd == "ll") {
                     println!("\n{}: Shell integration is not active. `where` cannot detect aliases or builtins.", "Hint".yellow());
-                    println!("Run `where --init <bash|zsh|fish>` to enable it.");
+                    println!("To enable it, add the following to your shell config:");
+                    println!("  Bash/Zsh: eval \"$(where --init bash)\"");
+                    println!("  Fish:     where --init fish | source");
                 }
                 
                 // Fuzzy search
