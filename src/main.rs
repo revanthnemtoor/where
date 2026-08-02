@@ -1,7 +1,9 @@
 use clap::{CommandFactory, Parser};
 use clap_complete::{generate, Shell};
 use colored::{control, Colorize};
-use serde::Serialize;
+use directories::ProjectDirs;
+use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::env;
@@ -13,6 +15,15 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 use wait_timeout::ChildExt;
+
+#[derive(Deserialize, Default)]
+struct Config {
+    color: Option<bool>,
+    output: Option<String>,
+    package: Option<bool>,
+    version_info: Option<bool>,
+    all: Option<bool>,
+}
 
 #[derive(Parser)]
 #[command(name = "where", version = "0.1.0", author = "Revanth Reddy Nemtoor")]
@@ -77,6 +88,10 @@ struct Cli {
     /// Show why a command was found
     #[arg(long)]
     why: bool,
+
+    /// Show command provenance and resolution flow
+    #[arg(long)]
+    trace: bool,
 
     /// Show benchmark stats
     #[arg(long)]
@@ -196,7 +211,28 @@ fn get_version(path: &Path) -> Option<String> {
 }
 
 fn main() {
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
+
+    if let Some(proj_dirs) = ProjectDirs::from("", "", "where") {
+        let config_file = proj_dirs.config_dir().join("config.toml");
+        if let Ok(contents) = fs::read_to_string(config_file) {
+            if let Ok(config) = toml::from_str::<Config>(&contents) {
+                if config.color.unwrap_or(false) { cli.color = true; }
+                if config.package.unwrap_or(false) { cli.package = true; }
+                if config.version_info.unwrap_or(false) { cli.version_info = true; }
+                if config.all.unwrap_or(false) { cli.all = true; }
+                if let Some(out) = config.output {
+                    match out.as_str() {
+                        "json" => cli.json = true,
+                        "yaml" => cli.yaml = true,
+                        "csv" => cli.csv = true,
+                        "plain" => cli.plain = true,
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
 
     if cli.color {
         control::set_override(true);
@@ -220,36 +256,50 @@ fn main() {
     }
 
     let start_time = Instant::now();
-    let mut dirs_searched = 0;
-    let mut files_examined = 0;
-    let mut duplicates_removed = 0;
 
     let path_var = env::var("PATH").unwrap_or_default();
     let paths: Vec<PathBuf> = env::split_paths(&path_var).collect();
 
-    // Cache PATH contents
-    let mut path_cache: HashMap<String, Vec<PathBuf>> = HashMap::new();
-    for dir in &paths {
-        dirs_searched += 1;
-        if let Ok(entries) = fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                if let Ok(file_type) = entry.file_type() {
-                    files_examined += 1;
-                    if file_type.is_file() || file_type.is_symlink() {
-                        if let Ok(name) = entry.file_name().into_string() {
-                            path_cache.entry(name).or_default().push(entry.path());
+    // Cache PATH contents in parallel
+    let (path_cache, dirs_searched, files_examined) = paths
+        .par_iter()
+        .map(|dir| {
+            let mut local_cache = HashMap::new();
+            let mut local_files = 0;
+            let mut local_dirs = 0;
+            if dir.exists() {
+                local_dirs = 1;
+                if let Ok(entries) = fs::read_dir(dir) {
+                    for entry in entries.flatten() {
+                        if let Ok(file_type) = entry.file_type() {
+                            local_files += 1;
+                            if file_type.is_file() || file_type.is_symlink() {
+                                if let Ok(name) = entry.file_name().into_string() {
+                                    local_cache.entry(name).or_insert_with(Vec::new).push(entry.path());
+                                }
+                            }
                         }
                     }
                 }
             }
-        }
-    }
+            (local_cache, local_dirs, local_files)
+        })
+        .reduce(
+            || (HashMap::new(), 0, 0),
+            |(mut cache1, d1, f1), (cache2, d2, f2)| {
+                for (k, v) in cache2 {
+                    cache1.entry(k).or_default().extend(v);
+                }
+                (cache1, d1 + d2, f1 + f2)
+            },
+        );
 
+    let mut duplicates_removed = 0;
     let mut results: HashMap<String, Vec<Match>> = HashMap::new();
     let mut missing_any = false;
 
     let is_structured = cli.json || cli.yaml || cli.csv;
-    let fetch_all = is_structured;
+    let fetch_all = is_structured || cli.trace;
 
     for cmd in &cli.commands {
         let mut matches_for_cmd: Vec<Match> = Vec::new();
@@ -262,6 +312,27 @@ fn main() {
                 println!("{}", p.display());
             }
             println!("\nMatched:");
+        }
+
+        if cli.trace {
+            println!("PATH:");
+            for (i, p) in paths.iter().enumerate() {
+                let mut matched = false;
+                if let Some(cmd_paths) = path_cache.get(cmd) {
+                    for cp in cmd_paths {
+                        if cp.parent() == Some(p) {
+                            matched = true;
+                            break;
+                        }
+                    }
+                }
+                if matched {
+                    println!("{}. {:<25} {} match", i + 1, p.display(), "✓".green());
+                } else {
+                    println!("{}. {}", i + 1, p.display());
+                }
+            }
+            println!();
         }
 
         if let Some(cmd_paths) = path_cache.get(cmd) {
@@ -403,6 +474,42 @@ fn main() {
         for matches in results.values() {
             for m in matches {
                 println!("{}", m.path.to_string_lossy());
+            }
+        }
+    } else if cli.trace {
+        for cmd in &cli.commands {
+            if let Some(matches) = results.get(cmd) {
+                for (idx, m) in matches.iter().enumerate() {
+                    if idx > 0 { println!("---"); }
+                    println!("{}:", "Executable".bold());
+                    println!("{}", m.path.to_string_lossy().green());
+                    if let Some(ref owner) = m.owner {
+                        println!("\n{}:", "Owner".bold());
+                        println!("{}", owner.yellow());
+                    }
+                    if let Some(ref pkg) = m.package {
+                        println!("\n{}:", "Package".bold());
+                        println!("{}", pkg.cyan());
+                    }
+                    if let Some(ref ver) = m.version {
+                        println!("\n{}:", "Version".bold());
+                        println!("{}", ver.magenta());
+                    }
+                    if let Some(ref hash) = m.hash {
+                        println!("\n{}:", "SHA256".bold());
+                        println!("{}", hash.blue());
+                    }
+                    if let Some(ref canon) = m.canonical {
+                        println!("\n{}:", "Canonical".bold());
+                        println!("{}", canon.to_string_lossy());
+                    }
+                    if !m.aliases.is_empty() {
+                        println!("\n{}:", "Aliases".bold());
+                        for alias in &m.aliases {
+                            println!("{}", alias.to_string_lossy());
+                        }
+                    }
+                }
             }
         }
     } else {
