@@ -45,3 +45,28 @@ fn test_deduplication() {
     let aliases = first_match.get("aliases").unwrap().as_array().unwrap();
     assert_eq!(aliases.len(), 1); // One alias was recorded
 }
+
+#[test]
+fn test_elf_parsing() {
+    let output = Command::new(env!("CARGO_BIN_EXE_where"))
+        .env("PATH", "/bin:/usr/bin")
+        .arg("--json")
+        .arg("--arch")
+        .arg("--libs")
+        .arg("--security")
+        .arg("ls")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let out_str = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&out_str).unwrap();
+    
+    let matches = json.get("ls").unwrap().as_array().unwrap();
+    assert!(!matches.is_empty());
+    
+    let first_match = &matches[0];
+    assert!(first_match.get("arch").is_some(), "arch should be populated");
+    assert!(first_match.get("security").is_some(), "security should be populated");
+    assert!(first_match.get("libs").is_some(), "libs should be populated");
+}

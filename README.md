@@ -67,6 +67,19 @@ python
     owner: root
     permissions: -rwxr-xr-x
     inode: 1191509
+
+### ELF Diagnostics
+Use ELF diagnostic flags (`--arch`, `--libs`, `--security`) to inspect binary structures natively:
+```bash
+$ where --arch --libs --security ls
+ls
+ └─ /usr/bin/ls
+    aliases:
+      /bin/ls
+    arch: X86_64
+    security: linked: dynamic
+    libraries: libcap.so.2, libc.so.6
+```
 ```
 
 ### Provenance Tracing

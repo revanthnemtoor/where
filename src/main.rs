@@ -116,6 +116,18 @@ struct Cli {
     #[arg(short = 'q', long)]
     quiet: bool,
 
+    /// Verify binary architecture using ELF headers
+    #[arg(long)]
+    arch: bool,
+
+    /// Check setuid/setgid and linkage
+    #[arg(long)]
+    security: bool,
+
+    /// List dynamic library dependencies
+    #[arg(long)]
+    libs: bool,
+
     /// Commands to search for
     #[arg(required_unless_present_any = ["about", "generate_completions", "doctor"])]
     commands: Vec<String>,
@@ -145,6 +157,12 @@ struct Match {
     version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     filesystem: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    arch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    security: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    libs: Option<Vec<String>>,
     executable: bool,
 }
 
@@ -515,6 +533,9 @@ fn main() {
                     package: None,
                     version: None,
                     filesystem: None,
+                    arch: None,
+                    security: None,
+                    libs: None,
                     executable,
                 };
                 
@@ -559,6 +580,34 @@ fn main() {
                 
                 if cli.trace || fetch_all {
                     m.filesystem = get_filesystem(full_path);
+                }
+
+                if cli.arch || cli.security || cli.libs || fetch_all {
+                    if let Ok(bytes) = fs::read(full_path) {
+                        if let Ok(goblin::Object::Elf(elf)) = goblin::Object::parse(&bytes) {
+                            if cli.arch || fetch_all {
+                                m.arch = Some(goblin::elf::header::machine_to_str(elf.header.e_machine).to_string());
+                            }
+                            if cli.libs || fetch_all {
+                                m.libs = Some(elf.libraries.iter().map(|&s| s.to_string()).collect());
+                            }
+                            if cli.security || fetch_all {
+                                let is_dynamic = !elf.libraries.is_empty() || elf.interpreter.is_some();
+                                let linkage = if is_dynamic { "dynamic" } else { "static" };
+                                let mut sec = format!("linked: {}", linkage);
+                                if let Some(meta) = &target_meta {
+                                    let mode = meta.mode();
+                                    if mode & 0o4000 != 0 {
+                                        sec.push_str(", setuid");
+                                    }
+                                    if mode & 0o2000 != 0 {
+                                        sec.push_str(", setgid");
+                                    }
+                                }
+                                m.security = Some(sec);
+                            }
+                        }
+                    }
                 }
 
                 matches_for_cmd.push(m);
@@ -731,6 +780,20 @@ fn main() {
                         println!("\n{}:", "SHA256".bold());
                         println!("{}", hash.blue());
                     }
+                    if let Some(ref arch) = m.arch {
+                        println!("\n{}:", "Architecture".bold());
+                        println!("{}", arch.cyan());
+                    }
+                    if let Some(ref sec) = m.security {
+                        println!("\n{}:", "Security".bold());
+                        println!("{}", sec.yellow());
+                    }
+                    if let Some(ref libs) = m.libs {
+                        println!("\n{}:", "Libraries".bold());
+                        for lib in libs {
+                            println!("{}", lib);
+                        }
+                    }
                     if let Some(ref canon) = m.canonical {
                         println!("\n{}:", "Canonical".bold());
                         println!("{}", canon.to_string_lossy());
@@ -770,7 +833,7 @@ fn main() {
                         
                         let mut extra = Vec::new();
                         
-                        if cli.verbose || cli.show_size || cli.hash || !m.aliases.is_empty() || cli.package || cli.version_info {
+                        if cli.verbose || cli.show_size || cli.hash || !m.aliases.is_empty() || cli.package || cli.version_info || cli.arch || cli.security || cli.libs {
                             if !m.aliases.is_empty() {
                                 extra.push(format!("aliases:"));
                                 for alias in &m.aliases {
@@ -811,7 +874,16 @@ fn main() {
                             if let Some(ref ver) = m.version {
                                 extra.push(format!("{}", ver.magenta()));
                             }
-                            
+                            if let Some(ref arch) = m.arch {
+                                extra.push(format!("arch: {}", arch.cyan()));
+                            }
+                            if let Some(ref sec) = m.security {
+                                extra.push(format!("security: {}", sec.yellow()));
+                            }
+                            if let Some(ref libs) = m.libs {
+                                extra.push(format!("libraries: {}", libs.join(", ")));
+                            }
+
                             for line in extra {
                                 println!("    {}", line);
                             }

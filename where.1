@@ -60,6 +60,15 @@ Show command provenance and resolution flow. Details exactly which PATH componen
 .BR \-\-benchmark
 Show benchmark statistics of the scan (directories searched, entries, elapsed time).
 .TP
+.BR \-\-arch
+Parse the ELF header to verify the architecture of the executable.
+.TP
+.BR \-\-security
+Parse the ELF header and check for setuid/setgid bits and linkage type (static/dynamic).
+.TP
+.BR \-\-libs
+Parse the ELF header and list all dynamic library dependencies (DT_NEEDED).
+.TP
 .BR \-\-doctor
 Diagnose PATH issues. Identifies duplicate directory entries, missing paths, dangerous relative paths, and shadowed binaries.
 .TP
