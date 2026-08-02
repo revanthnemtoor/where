@@ -35,8 +35,8 @@ fn test_deduplication() {
     // Parse the JSON
     let json: serde_json::Value = serde_json::from_str(&out_str).unwrap();
     
-    // The results map should have a "python" key with a list of matches
-    let matches = json.get("python").unwrap().as_array().unwrap();
+    // The results map should have a "python" key with a CommandResult struct
+    let matches = json.get("python").unwrap().get("matches").unwrap().as_array().unwrap();
     
     // Deduplication should ensure we only get 1 match because they point to the same inode
     assert_eq!(matches.len(), 1);
@@ -62,7 +62,7 @@ fn test_elf_parsing() {
     let out_str = String::from_utf8_lossy(&output.stdout);
     let json: serde_json::Value = serde_json::from_str(&out_str).unwrap();
     
-    let matches = json.get("ls").unwrap().as_array().unwrap();
+    let matches = json.get("ls").unwrap().get("matches").unwrap().as_array().unwrap();
     assert!(!matches.is_empty());
     
     let first_match = &matches[0];
@@ -97,7 +97,7 @@ fn test_env_path_and_deep() {
     let out_str = String::from_utf8_lossy(&output.stdout);
     let json: serde_json::Value = serde_json::from_str(&out_str).unwrap();
     
-    let matches = json.get("python").unwrap().as_array().unwrap();
+    let matches = json.get("python").unwrap().get("matches").unwrap().as_array().unwrap();
     assert_eq!(matches.len(), 1);
     
     let path = matches[0].get("path").unwrap().as_str().unwrap();
