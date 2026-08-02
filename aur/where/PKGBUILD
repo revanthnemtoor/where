@@ -1,7 +1,7 @@
 # Maintainer: Revanth Reddy Nemtoor <developerrevanth123@gmail.com>
 
 pkgname=where
-pkgver=1.2.2
+pkgver=1.2.3
 pkgrel=1
 pkgdesc="A fast replacement for the which and where commands on Linux."
 arch=('x86_64' 'aarch64')
@@ -32,4 +32,9 @@ package() {
   install -Dm755 "target/release/where" "$pkgdir/usr/bin/where"
   install -Dm644 "where.1" "$pkgdir/usr/share/man/man1/where.1"
   install -Dm644 "LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  
+  # Install shell integration scripts
+  install -Dm644 "shell/where.bash" "$pkgdir/etc/profile.d/where.sh"
+  install -Dm644 "shell/where.fish" "$pkgdir/usr/share/fish/vendor_conf.d/where.fish"
+  install -Dm644 "shell/where.zsh" "$pkgdir/usr/share/where/where.zsh"
 }
