@@ -63,6 +63,9 @@ Show benchmark statistics of the scan (directories searched, entries, elapsed ti
 .BR \-i ", " \-\-interactive
 Launch an interactive fuzzy finder (powered by skim) to search through all executables in PATH and run diagnostics on the selected ones.
 .TP
+.BR \-\-suggest
+If a command is not found locally, query the system package manager (pacman) to suggest packages that contain it.
+.TP
 .BR \-\-env\-path " \fIPATH\fR"
 Simulate a custom PATH environment variable (e.g., /usr/local/bin:/opt/bin).
 .TP

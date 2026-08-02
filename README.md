@@ -120,6 +120,16 @@ $ where --interactive
 ```
 This drops you into a blazing-fast fuzzy finder powered by `skim`. Selecting an executable will automatically run the standard `where` diagnostics on it.
 
+### Package Manager Suggestions ("Did you mean?")
+Ever type a command and find out it's not installed? With the `--suggest` flag, `where` will query your system's package manager (`pacman`) to find which package contains that exact binary and tell you exactly how to install it!
+```bash
+$ where --suggest bspwm
+bspwm: Command not found.
+
+📦 Available in packages (via pacman):
+    sudo pacman -S bspwm
+```
+
 ### Search Flexibility
 You can easily redirect `where`'s search behavior using custom environments or recursive scanning:
 ```bash

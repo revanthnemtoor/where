@@ -140,6 +140,10 @@ struct Cli {
     #[arg(short, long)]
     interactive: bool,
 
+    /// Query package managers if command is not found
+    #[arg(long)]
+    suggest: bool,
+
     /// Commands to search for
     #[arg(required_unless_present_any = ["about", "generate_completions", "doctor", "interactive"])]
     commands: Vec<String>,
@@ -744,6 +748,29 @@ fn main() {
                 }
                 if let Some(suggestion) = best_match {
                     println!("\nDid you mean?\n  {}", suggestion.green());
+                }
+
+                if cli.suggest {
+                    let output = std::process::Command::new("pacman")
+                        .args(["-Fq", cmd])
+                        .output();
+                    if let Ok(out) = output {
+                        if out.status.success() {
+                            let packages = String::from_utf8_lossy(&out.stdout);
+                            let mut pkgs: Vec<&str> = packages
+                                .lines()
+                                .map(|line| line.split('/').last().unwrap_or(line))
+                                .collect();
+                            pkgs.sort();
+                            pkgs.dedup();
+                            if !pkgs.is_empty() {
+                                println!("\n{} Available in packages (via pacman):", "📦".cyan());
+                                for pkg in pkgs {
+                                    println!("    sudo pacman -S {}", pkg.bold());
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
