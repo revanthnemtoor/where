@@ -112,6 +112,10 @@ struct Cli {
     #[arg(long)]
     about: bool,
 
+    /// Quiet mode: suppress all output, just return exit codes
+    #[arg(short = 'q', long)]
+    quiet: bool,
+
     /// Commands to search for
     #[arg(required_unless_present_any = ["about", "generate_completions", "doctor"])]
     commands: Vec<String>,
@@ -598,7 +602,7 @@ fn main() {
         if matches_for_cmd.is_empty() {
             missing_any = true;
             
-            if !is_structured && !cli.plain && !cli.trace {
+            if !is_structured && !cli.plain && !cli.trace && !cli.quiet {
                 println!("{}: Command not found.", cmd.red());
                 // Fuzzy search
                 let mut best_match = None;
@@ -619,7 +623,9 @@ fn main() {
         results.insert(cmd.clone(), matches_for_cmd);
     }
 
-    if cli.json {
+    if cli.quiet {
+        // Suppress all output
+    } else if cli.json {
         let output_json = if cli.trace {
             let mut trace_paths = Vec::new();
             for (i, p) in paths.iter().enumerate() {
