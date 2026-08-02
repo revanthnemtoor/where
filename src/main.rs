@@ -26,7 +26,7 @@ struct Config {
 }
 
 #[derive(Parser)]
-#[command(name = "where", version = "0.1.0", author = "Revanth Reddy Nemtoor")]
+#[command(name = "where", version = "1.1.0", author = "Revanth Reddy Nemtoor")]
 #[command(about = "A modern replacement for which/where.")]
 struct Cli {
     /// Print all matches (default behavior)
@@ -305,7 +305,7 @@ fn main() {
     }
 
     if cli.about {
-        println!("{} {}\n{}", "where".bold().green(), "0.1.0".cyan(), "A modern replacement for which/where.".italic());
+        println!("{} {}\n{}", "where".bold().green(), "1.1.0".cyan(), "A modern replacement for which/where.".italic());
         println!();
         println!("{:<10} : {}", "Author".bold(), "Revanth Reddy Nemtoor".yellow());
         println!("{:<10} : {}", "License".bold(), "MIT".yellow());
