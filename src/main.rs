@@ -144,6 +144,14 @@ struct Cli {
     #[arg(long)]
     suggest: bool,
 
+    /// Show the resolution hierarchy (shell context vs filesystem)
+    #[arg(long)]
+    resolve: bool,
+
+    /// Explain the selection logic for the resolved command
+    #[arg(long)]
+    explain: bool,
+
     /// Commands to search for
     #[arg(required_unless_present_any = ["about", "generate_completions", "doctor", "interactive"])]
     commands: Vec<String>,
@@ -180,6 +188,92 @@ struct Match {
     #[serde(skip_serializing_if = "Option::is_none")]
     libs: Option<Vec<String>>,
     executable: bool,
+}
+
+#[derive(Debug, Default, Serialize)]
+struct ShellContext {
+    shell_name: Option<String>,
+    alias: Option<String>,
+    is_function: bool,
+    is_builtin: bool,
+    abbreviation: Option<String>,
+    env_var: Option<String>,
+}
+
+impl ShellContext {
+    fn parse(cmd: &str) -> Self {
+        let env_var = std::env::var(cmd).ok();
+        
+        let shell_name = std::env::var("WHERE_SHELL").ok();
+        
+        let mut alias = None;
+        if let Ok(aliases_env) = std::env::var("WHERE_ALIASES") {
+            // Bash: alias cmd='...'
+            // Zsh: cmd='...'
+            // Fish: alias cmd '...'
+            for line in aliases_env.lines() {
+                if let Some(def) = line.strip_prefix(&format!("alias {}=", cmd)) {
+                    alias = Some(def.trim_matches('\'').trim_matches('"').to_string());
+                    break;
+                }
+                if let Some(def) = line.strip_prefix(&format!("alias {} ", cmd)) {
+                    alias = Some(def.trim_matches('\'').trim_matches('"').to_string());
+                    break;
+                }
+                if let Some(def) = line.strip_prefix(&format!("{}=", cmd)) {
+                    alias = Some(def.trim_matches('\'').trim_matches('"').to_string());
+                    break;
+                }
+            }
+        }
+
+        let mut is_function = false;
+        if let Ok(funcs_env) = std::env::var("WHERE_FUNCTIONS") {
+            for func in funcs_env.split_whitespace() {
+                if func == cmd {
+                    is_function = true;
+                    break;
+                }
+            }
+        }
+
+        let mut is_builtin = false;
+        if let Ok(builtins_env) = std::env::var("WHERE_BUILTINS") {
+            for builtin in builtins_env.split_whitespace() {
+                if builtin == cmd {
+                    is_builtin = true;
+                    break;
+                }
+            }
+        }
+
+        let mut abbreviation = None;
+        if let Ok(abbrs_env) = std::env::var("WHERE_ABBRS") {
+            // abbr --add cmd '...'
+            for line in abbrs_env.lines() {
+                if line.contains(&format!(" {} ", cmd)) {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 4 && parts[2] == cmd {
+                        abbreviation = Some(parts[3..].join(" ").trim_matches('\'').trim_matches('"').to_string());
+                        break;
+                    }
+                }
+            }
+        }
+
+        Self {
+            shell_name,
+            alias,
+            is_function,
+            is_builtin,
+            abbreviation,
+            env_var,
+        }
+    }
+
+    fn is_found(&self) -> bool {
+        self.alias.is_some() || self.is_function || self.is_builtin || self.abbreviation.is_some() || self.env_var.is_some()
+    }
 }
 
 #[derive(Serialize)]
@@ -365,6 +459,8 @@ fn main() {
     let paths: Vec<PathBuf> = env::split_paths(&path_var).collect();
     
     let max_depth = cli.deep.unwrap_or(1);
+    
+    let mut shell_contexts: HashMap<String, ShellContext> = HashMap::new();
 
     // Cache PATH contents in parallel
     let (path_cache, dirs_searched, files_examined) = paths
@@ -731,7 +827,11 @@ fn main() {
             println!("{:<11} : {:.2} ms\n", "Elapsed", elapsed.as_secs_f64() * 1000.0);
         }
 
-        if matches_for_cmd.is_empty() {
+        let shell_ctx = ShellContext::parse(cmd);
+        let found_in_shell = shell_ctx.is_found();
+        shell_contexts.insert(cmd.clone(), shell_ctx);
+
+        if matches_for_cmd.is_empty() && !found_in_shell {
             missing_any = true;
             
             if !is_structured && !cli.plain && !cli.trace && !cli.quiet {
@@ -898,12 +998,120 @@ fn main() {
         let mut first_cmd = true;
         for cmd in &commands {
             if let Some(matches) = results.get(cmd) {
-                if !matches.is_empty() {
+                let shell_ctx = shell_contexts.get(cmd).unwrap();
+                if !matches.is_empty() || shell_ctx.is_found() {
                     if !first_cmd && !cli.why {
                         println!();
                     }
                     if !cli.why {
                         println!("{}", cmd.bold());
+                    }
+
+                    if cli.resolve {
+                        println!("Resolution order");
+                        println!();
+                        if shell_ctx.alias.is_some() {
+                            println!("✓ {}", "alias".green());
+                        } else {
+                            println!("✗ {}", "alias".red());
+                        }
+                        if shell_ctx.is_function {
+                            println!("✓ {}", "function".green());
+                        } else {
+                            println!("✗ {}", "function".red());
+                        }
+                        if shell_ctx.is_builtin {
+                            println!("✓ {}", "builtin".green());
+                        } else {
+                            println!("✗ {}", "builtin".red());
+                        }
+                        if shell_ctx.abbreviation.is_some() {
+                            println!("✓ {}", "abbreviation".green());
+                        } else {
+                            // Only print abbr if fish shell
+                            if shell_ctx.shell_name.as_deref() == Some("fish") {
+                                println!("✗ {}", "abbreviation".red());
+                            }
+                        }
+                        if shell_ctx.env_var.is_some() {
+                            println!("✓ {}", "env var".green());
+                        } else {
+                            println!("✗ {}", "env var".red());
+                        }
+                        if !matches.is_empty() {
+                            println!("✓ {}", "executable".green());
+                        } else {
+                            println!("✗ {}", "executable".red());
+                        }
+                        println!();
+                    }
+
+                    if cli.explain {
+                        println!("Shell searched:");
+                        println!();
+                        println!("{} alias", if shell_ctx.alias.is_some() { "✓" } else { "✗" });
+                        println!("{} function", if shell_ctx.is_function { "✓" } else { "✗" });
+                        println!("{} builtin", if shell_ctx.is_builtin { "✓" } else { "✗" });
+                        println!("{} env var", if shell_ctx.env_var.is_some() { "✓" } else { "✗" });
+                        println!("{} PATH", if !matches.is_empty() { "✓" } else { "✗" });
+                        println!();
+                        println!("Selected:");
+                        if let Some(ref alias) = shell_ctx.alias {
+                            println!("alias {}='{}'", cmd, alias);
+                            println!("\nReason:\nMatched shell alias");
+                        } else if shell_ctx.is_function {
+                            println!("{} (function)", cmd);
+                            println!("\nReason:\nNo alias\nMatched shell function");
+                        } else if shell_ctx.is_builtin {
+                            println!("{} (builtin)", cmd);
+                            println!("\nReason:\nNo alias\nNo function\nMatched shell builtin");
+                        } else if let Some(ref abbr) = shell_ctx.abbreviation {
+                            println!("abbr {}='{}'", cmd, abbr);
+                            println!("\nReason:\nMatched fish abbreviation");
+                        } else if let Some(ref env_val) = shell_ctx.env_var {
+                            println!("{}={}", cmd, env_val);
+                            println!("\nReason:\nMatched environment variable");
+                        } else if let Some(m) = matches.first() {
+                            println!("{}", m.path.to_string_lossy());
+                            println!("\nReason:\nNo alias\nNo function\nNot a builtin\nExecutable found in PATH");
+                        }
+                        println!();
+                    } else if cli.resolve {
+                        println!("Result:");
+                        if let Some(ref alias) = shell_ctx.alias {
+                            println!("alias {}='{}'", cmd, alias);
+                        } else if shell_ctx.is_function {
+                            println!("function {}", cmd);
+                        } else if shell_ctx.is_builtin {
+                            println!("builtin {}", cmd);
+                        } else if let Some(ref abbr) = shell_ctx.abbreviation {
+                            println!("abbr {}='{}'", cmd, abbr);
+                        } else if let Some(ref env_val) = shell_ctx.env_var {
+                            println!("{}={}", cmd, env_val);
+                        } else if let Some(m) = matches.first() {
+                            println!("{}", m.path.to_string_lossy());
+                        }
+                        println!();
+                    }
+
+                    if let Some(ref alias) = shell_ctx.alias {
+                        println!(" └─ {}", "shell alias".cyan());
+                        println!("    expands to: {}", alias);
+                    }
+                    if shell_ctx.is_function {
+                        println!(" └─ {}", "shell function".cyan());
+                    }
+                    if shell_ctx.is_builtin {
+                        println!(" └─ {}", "shell builtin".cyan());
+                    }
+                    if let Some(ref abbr) = shell_ctx.abbreviation {
+                        println!(" └─ {}", "shell abbreviation".cyan());
+                        println!("    expands to: {}", abbr);
+                    }
+                    if let Some(ref env_val) = shell_ctx.env_var {
+                        println!(" └─ {}", "environment variable".cyan());
+                        let preview = if env_val.len() > 60 { format!("{}...", &env_val[..60]) } else { env_val.clone() };
+                        println!("    value: {}", preview);
                     }
                     for m in matches {
                         let path_str = m.path.to_string_lossy();

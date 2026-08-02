@@ -66,6 +66,12 @@ Launch an interactive fuzzy finder (powered by skim) to search through all execu
 .BR \-\-suggest
 If a command is not found locally, query the system package manager (pacman) to suggest packages that contain it.
 .TP
+.BR \-\-resolve
+Display the resolution hierarchy for a command, checking aliases, functions, builtins, abbreviations, and executables (requires shell integration).
+.TP
+.BR \-\-explain
+Provide a verbose explanation of why a specific execution target was selected based on shell context (requires shell integration).
+.TP
 .BR \-\-env\-path " \fIPATH\fR"
 Simulate a custom PATH environment variable (e.g., /usr/local/bin:/opt/bin).
 .TP
