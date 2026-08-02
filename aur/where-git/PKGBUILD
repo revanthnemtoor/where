@@ -3,7 +3,7 @@
 pkgname=where-git
 pkgver=1.1.1.r0.gce827b7
 pkgrel=1
-pkgdesc="A modern, fast replacement for the which and where commands on Linux. (Git version)"
+pkgdesc="A fast replacement for the which and where commands on Linux. (Git version)"
 arch=('x86_64' 'aarch64')
 url="https://github.com/revanthnemtoor/where"
 license=('MIT')

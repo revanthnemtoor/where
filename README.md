@@ -1,6 +1,6 @@
 # where
 
-A modern, fast replacement for the `which` and `where` commands on Linux, written in Rust.
+A fast replacement for the `which` and `where` commands on Linux.
 
 The `where` command helps you locate executables in your system's `PATH`. It provides features similar to the Windows `where` command, combined with Unix-specific enhancements like symlink resolution, permissions viewing, structural diagnostics, and structured JSON outputs.
 
@@ -11,7 +11,7 @@ The `where` command helps you locate executables in your system's `PATH`. It pro
 - **Diagnostics (`--doctor`):** Instantly audit your `$PATH` for missing directories, duplicates, dangerous relative paths, and shadowed binaries.
 - **Provenance Tracing (`--trace`):** See exactly *how* and *why* a command resolved to a specific binary across all your `PATH` directories, complete with filesystem detection.
 - **Machine-readable formats:** Output results as `JSON`, `YAML`, or `CSV` for easy scripting and automation.
-- **Fast execution:** Written in Rust using `rayon` for parallel directory scanning. Tracks search completion time down to the millisecond.
+- **Fast execution:** Parallel directory scanning tracks search completion time down to the millisecond.
 
 ## Installation
 
@@ -124,8 +124,8 @@ version_info = true
 |---|---|
 | `0` | Success (all commands found, or `--doctor` found no issues) |
 | `1` | At least one command missing, or `--doctor` found missing/unreadable directories |
-| `2` | Invalid arguments (handled by `clap`) |
+| `2` | Invalid arguments |
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+Licensed under the MIT License.
