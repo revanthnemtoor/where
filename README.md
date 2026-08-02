@@ -2,19 +2,26 @@
 
 A modern, fast replacement for the `which` and `where` commands on Linux, written in Rust.
 
-The `where` command helps you locate executables in your system's `PATH`. It provides features similar to the Windows `where` command, combined with Unix-specific enhancements like symlink resolution, permissions viewing, and colorized output.
+The `where` command helps you locate executables in your system's `PATH`. It provides features similar to the Windows `where` command, combined with Unix-specific enhancements like symlink resolution, permissions viewing, structural diagnostics, and structured JSON outputs.
 
 ## Features
 
 - **Deduplication:** Automatically groups aliased or symlinked paths (like `/bin/` and `/usr/bin/`) to provide clean output.
-- **Detailed information:** View symlink targets, ownership, inode numbers, and file sizes.
-- **Verification:** Instantly generate SHA-256 hashes of target executables.
-- **Machine-readable formats:** Output results as JSON for easy scripting and automation.
-- **Fast execution:** Written in Rust for minimal overhead. Tracks search completion time.
-- **Visual cues:** Colors highlight valid executables (green) and files lacking execution permissions (red).
+- **Detailed information:** View symlink targets, ownership, inode numbers, file sizes, and package origins.
+- **Diagnostics (`--doctor`):** Instantly audit your `$PATH` for missing directories, duplicates, dangerous relative paths, and shadowed binaries.
+- **Provenance Tracing (`--trace`):** See exactly *how* and *why* a command resolved to a specific binary across all your `PATH` directories, complete with filesystem detection.
+- **Machine-readable formats:** Output results as `JSON`, `YAML`, or `CSV` for easy scripting and automation.
+- **Fast execution:** Written in Rust using `rayon` for parallel directory scanning. Tracks search completion time down to the millisecond.
 
 ## Installation
 
+### From crates.io
+```bash
+cargo install where-cmd
+```
+*(The binary is installed as `where`)*
+
+### From Source
 To build and install the command from source, you must have [Rust and Cargo](https://rustup.rs/) installed.
 
 1.  Clone this repository:
@@ -41,38 +48,18 @@ Provide one or more command names as arguments to locate them.
 where <command> [command...]
 ```
 
-### Basic search
-
+### Basic Search
 To find the location of a single executable, run:
-
 ```bash
-where python
-```
-
-Output:
-```
+$ where python
 python
  └─ /usr/bin/python
 ```
 
-### Multiple searches
-
-To search for multiple executables at once, separate them with spaces:
-
-```bash
-where git python cargo
-```
-
-### View verbose information
-
+### Verbose Information
 To view detailed information about the executable, such as its symlink targets, permissions, owner, and inode, use the `-v` or `--verbose` flag:
-
 ```bash
-where -v python
-```
-
-Output:
-```
+$ where -v python
 python
  └─ /usr/bin/python -> python3
     also in PATH as: /bin/python
@@ -82,38 +69,54 @@ python
     inode: 1191509
 ```
 
-### View SHA-256 hash
-
-To compute and display the SHA-256 hash of the executable, use the `--hash` flag:
-
+### Provenance Tracing
+If you are debugging a broken environment, use `--trace` to see precisely how a binary was resolved:
 ```bash
-where --hash python
+$ where --trace cargo
+PATH:
+1. /usr/local/bin
+2. /usr/bin                  ✓ selected
+3. /bin                      ✓ alias
+
+Executable:
+/usr/bin/cargo
+
+Filesystem:
+btrfs
+
+Scan
+────
+Directories : 12
+Entries     : 13897
+Workers     : 16
+Elapsed     : 43.63 ms
 ```
 
-Output:
-```
-python
- └─ /usr/bin/python
-    sha256: 25aa96d579c8dd8194dac632dc79511f055381da7f40ef1c45167c23d6867e95
-```
-
-### Output JSON
-
-To return the results in JSON format for use in other scripts, use the `--json` flag:
-
+### PATH Diagnostics
+Audit your environment for errors:
 ```bash
-where --json python
+$ where --doctor
+PATH diagnostics
+
+✓ PATH contains 14 directories
+
+⚠ Duplicate:
+/bin
+
+⚠ Missing:
+/fake/missing/dir
+
+⚠ 6926 shadowed binaries detected
 ```
 
-### Additional flags
-
-- `-a, --all`: Print all matches (default behavior).
-- `-1, --first-only`: Stop searching after finding the first match.
-- `-l, --show-symlink`: Show symlink targets.
-- `-s, --show-size`: Show the file size in bytes.
-- `--time`: Print the duration it took to complete the search.
-- `--color`: Force colored output.
-- `--about`: Print information about the tool's version, author, and license.
+### Persistent Configuration
+You can configure default flags by placing a `config.toml` file in `~/.config/where/config.toml`:
+```toml
+color = true
+output = "json"
+package = true
+version_info = true
+```
 
 ## Exit Codes
 
