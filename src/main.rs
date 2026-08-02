@@ -751,26 +751,7 @@ fn main() {
                 }
 
                 if cli.suggest {
-                    let output = std::process::Command::new("pacman")
-                        .args(["-Fq", cmd])
-                        .output();
-                    if let Ok(out) = output {
-                        if out.status.success() {
-                            let packages = String::from_utf8_lossy(&out.stdout);
-                            let mut pkgs: Vec<&str> = packages
-                                .lines()
-                                .map(|line| line.split('/').last().unwrap_or(line))
-                                .collect();
-                            pkgs.sort();
-                            pkgs.dedup();
-                            if !pkgs.is_empty() {
-                                println!("\n{} Available in packages (via pacman):", "📦".cyan());
-                                for pkg in pkgs {
-                                    println!("    sudo pacman -S {}", pkg.bold());
-                                }
-                            }
-                        }
-                    }
+                    suggest_packages(cmd);
                 }
             }
         }
@@ -1012,5 +993,102 @@ fn main() {
 
     if missing_any {
         std::process::exit(1);
+    }
+}
+
+fn suggest_packages(cmd: &str) {
+    use std::process::Command;
+
+    // pacman (Arch Linux)
+    if let Ok(out) = Command::new("pacman").args(["-Fq", cmd]).output() {
+        if out.status.success() {
+            let packages = String::from_utf8_lossy(&out.stdout);
+            let mut pkgs: Vec<&str> = packages
+                .lines()
+                .map(|line| line.split('/').last().unwrap_or(line))
+                .collect();
+            pkgs.sort();
+            pkgs.dedup();
+            if !pkgs.is_empty() {
+                println!("\n{} Available in packages (via pacman):", "📦".cyan());
+                for pkg in pkgs {
+                    println!("    sudo pacman -S {}", pkg.bold());
+                }
+            }
+        }
+    }
+
+    // apt-file (Debian/Ubuntu)
+    if let Ok(out) = Command::new("apt-file").args(["search", "-x", &format!("^/bin/{}$", cmd)]).output() {
+        if out.status.success() {
+            let packages = String::from_utf8_lossy(&out.stdout);
+            let mut pkgs: Vec<&str> = packages
+                .lines()
+                .filter_map(|line| line.split(':').next())
+                .collect();
+            pkgs.sort();
+            pkgs.dedup();
+            if !pkgs.is_empty() {
+                println!("\n{} Available in packages (via apt):", "📦".cyan());
+                for pkg in pkgs {
+                    println!("    sudo apt install {}", pkg.bold());
+                }
+            }
+        }
+    }
+
+    // dnf (Fedora/RHEL)
+    if let Ok(out) = Command::new("dnf").args(["provides", &format!("*/bin/{}", cmd)]).output() {
+        if out.status.success() {
+            let packages = String::from_utf8_lossy(&out.stdout);
+            let mut pkgs: Vec<&str> = packages
+                .lines()
+                .filter(|line| !line.contains("Repo") && !line.contains("Matched") && line.contains(':'))
+                .filter_map(|line| line.split('-').next())
+                .collect();
+            pkgs.sort();
+            pkgs.dedup();
+            if !pkgs.is_empty() {
+                println!("\n{} Available in packages (via dnf):", "📦".cyan());
+                for pkg in pkgs {
+                    println!("    sudo dnf install {}", pkg.bold());
+                }
+            }
+        }
+    }
+
+    // brew (macOS)
+    if let Ok(out) = Command::new("brew").args(["which-formula", cmd]).output() {
+        if out.status.success() {
+            let pkg = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !pkg.is_empty() && !pkg.contains("Error") {
+                println!("\n{} Available in packages (via brew):", "📦".cyan());
+                println!("    brew install {}", pkg.bold());
+            }
+        }
+    }
+
+    // cargo
+    if let Ok(out) = Command::new("cargo").args(["search", "--limit", "1", cmd]).output() {
+        if out.status.success() {
+            let output = String::from_utf8_lossy(&out.stdout);
+            if let Some(line) = output.lines().next() {
+                if line.starts_with(&format!("{} =", cmd)) {
+                    println!("\n{} Available in crates.io (via cargo):", "📦".cyan());
+                    println!("    cargo install {}", cmd.bold());
+                }
+            }
+        }
+    }
+
+    // npm
+    if let Ok(out) = Command::new("npm").args(["view", cmd, "name"]).output() {
+        if out.status.success() {
+            let pkg = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !pkg.is_empty() && pkg == cmd {
+                println!("\n{} Available in npm (via Node.js):", "📦".cyan());
+                println!("    npm install -g {}", pkg.bold());
+            }
+        }
     }
 }
