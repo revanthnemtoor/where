@@ -3201,7 +3201,7 @@ dependencies = [
 
 [[package]]
 name = "where_cmd"
-version = "1.2.2"
+version = "1.2.3"
 dependencies = [
  "clap",
  "clap_complete",
@@ -3223,6 +3223,7 @@ dependencies = [
  "toml",
  "wait-timeout",
  "walkdir",
+ "which",
 ]
 
 [[package]]
