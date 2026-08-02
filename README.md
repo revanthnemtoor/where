@@ -133,21 +133,21 @@ bspwm: Command not found.
 ### Shell Context (Aliases, Builtins, Functions)
 Ever wonder why `where` can't find a command like `ll` or `cd` when it works perfectly in your terminal? These are often **shell constructs** (aliases, functions, or built-ins), not actual binary files.
 
-To fix this, `where` supports **Shell Integration**. By sourcing a small wrapper script in your shell configuration, `where` will automatically detect aliases, functions, abbreviations, built-ins, and environment variables!
+To fix this, `where` supports **Shell Integration**. You can generate the integration script dynamically by adding the `where --init` command to your shell configuration:
 
 **Bash**: Add to `~/.bashrc`:
 ```bash
-source /path/to/where/shell/where.bash
+eval "$(where --init bash)"
 ```
 
 **Zsh**: Add to `~/.zshrc`:
 ```zsh
-source /path/to/where/shell/where.zsh
+eval "$(where --init zsh)"
 ```
 
 **Fish**: Add to `~/.config/fish/config.fish`:
 ```fish
-source /path/to/where/shell/where.fish
+where --init fish | source
 ```
 
 Once integrated, `where` natively understands your shell:

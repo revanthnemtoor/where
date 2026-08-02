@@ -152,8 +152,12 @@ struct Cli {
     #[arg(long)]
     explain: bool,
 
+    /// Generate shell integration script (bash, zsh, fish)
+    #[arg(long)]
+    init: Option<String>,
+
     /// Commands to search for
-    #[arg(required_unless_present_any = ["about", "generate_completions", "doctor", "interactive"])]
+    #[arg(required_unless_present_any = ["about", "generate_completions", "doctor", "interactive", "init"])]
     commands: Vec<String>,
 }
 
@@ -190,13 +194,19 @@ struct Match {
     executable: bool,
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default, Serialize, Clone)]
 struct ShellContext {
+    #[serde(skip_serializing_if = "Option::is_none")]
     shell_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     alias: Option<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
     is_function: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
     is_builtin: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     abbreviation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     env_var: Option<String>,
 }
 
@@ -298,9 +308,17 @@ struct TraceBlock {
 }
 
 #[derive(Serialize)]
+struct CommandResult {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    shell_context: Option<ShellContext>,
+    matches: Vec<Match>,
+}
+
+#[derive(Serialize)]
 struct RootJson {
+    #[serde(skip_serializing_if = "Option::is_none")]
     trace: Option<TraceBlock>,
-    results: HashMap<String, Vec<Match>>,
+    results: HashMap<String, CommandResult>,
 }
 
 fn is_executable(path: &Path) -> bool {
@@ -617,6 +635,44 @@ fn main() {
     let mut results: HashMap<String, Vec<Match>> = HashMap::new();
     let mut missing_any = false;
 
+    if let Some(shell) = &cli.init {
+        match shell.as_str() {
+            "bash" => {
+                println!(r#"where() {{
+    export WHERE_SHELL="bash"
+    export WHERE_ALIASES="$(alias)"
+    export WHERE_FUNCTIONS="$(declare -F | awk '{{print $3}}')"
+    export WHERE_BUILTINS="$(compgen -b)"
+    command where "$@"
+}}"#);
+            }
+            "zsh" => {
+                println!(r#"where() {{
+    export WHERE_SHELL="zsh"
+    export WHERE_ALIASES="$(alias)"
+    export WHERE_FUNCTIONS="$(print -l ${{(k)functions}})"
+    export WHERE_BUILTINS="$(print -l ${{(k)builtins}})"
+    command where "$@"
+}}"#);
+            }
+            "fish" => {
+                println!(r#"function where
+    set -lx WHERE_SHELL "fish"
+    set -lx WHERE_ALIASES (alias)
+    set -lx WHERE_FUNCTIONS (functions -n)
+    set -lx WHERE_BUILTINS (builtin -n)
+    set -lx WHERE_ABBRS (abbr --show)
+    command where $argv
+end"#);
+            }
+            _ => {
+                eprintln!("Unsupported shell: {}. Supported shells: bash, zsh, fish", shell);
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
     let is_structured = cli.json || cli.yaml || cli.csv;
     let fetch_all = is_structured || cli.trace;
 
@@ -829,13 +885,20 @@ fn main() {
 
         let shell_ctx = ShellContext::parse(cmd);
         let found_in_shell = shell_ctx.is_found();
-        shell_contexts.insert(cmd.clone(), shell_ctx);
+        shell_contexts.insert(cmd.clone(), shell_ctx.clone());
 
         if matches_for_cmd.is_empty() && !found_in_shell {
             missing_any = true;
             
             if !is_structured && !cli.plain && !cli.trace && !cli.quiet {
                 println!("{}: Command not found.", cmd.red());
+                
+                // If shell wrapper is not active, give a hint
+                if std::env::var("WHERE_SHELL").is_err() && (cli.explain || cli.resolve || cmd == "cd" || cmd == "ll") {
+                    println!("\n{}: Shell integration is not active. `where` cannot detect aliases or builtins.", "Hint".yellow());
+                    println!("Run `where --init <bash|zsh|fish>` to enable it.");
+                }
+                
                 // Fuzzy search
                 let mut best_match = None;
                 let mut best_score = 0.0;
@@ -882,6 +945,12 @@ fn main() {
                 });
             }
             
+            let mut formatted_results: HashMap<String, CommandResult> = HashMap::new();
+            for (cmd, matches) in results {
+                let shell_context = shell_contexts.get(&cmd).cloned().filter(|c| c.is_found());
+                formatted_results.insert(cmd, CommandResult { shell_context, matches });
+            }
+
             let root = RootJson {
                 trace: Some(TraceBlock {
                     path: trace_paths,
@@ -892,7 +961,7 @@ fn main() {
                         elapsed_ms: elapsed.as_secs_f64() * 1000.0,
                     }
                 }),
-                results,
+                results: formatted_results,
             };
             if cli.pretty {
                 serde_json::to_string_pretty(&root).unwrap()
@@ -900,10 +969,16 @@ fn main() {
                 serde_json::to_string(&root).unwrap()
             }
         } else {
+            let mut formatted_results: HashMap<String, CommandResult> = HashMap::new();
+            for (cmd, matches) in results {
+                let shell_context = shell_contexts.get(&cmd).cloned().filter(|c| c.is_found());
+                formatted_results.insert(cmd, CommandResult { shell_context, matches });
+            }
+            
             if cli.pretty {
-                serde_json::to_string_pretty(&results).unwrap()
+                serde_json::to_string_pretty(&formatted_results).unwrap()
             } else {
-                serde_json::to_string(&results).unwrap()
+                serde_json::to_string(&formatted_results).unwrap()
             }
         };
         println!("{}", output_json);
@@ -1110,8 +1185,14 @@ fn main() {
                     }
                     if let Some(ref env_val) = shell_ctx.env_var {
                         println!(" └─ {}", "environment variable".cyan());
-                        let preview = if env_val.len() > 60 { format!("{}...", &env_val[..60]) } else { env_val.clone() };
-                        println!("    value: {}", preview);
+                        if env_val.contains(':') {
+                            println!("    value:");
+                            for part in env_val.split(':') {
+                                println!("      {}", part);
+                            }
+                        } else {
+                            println!("    value: {}", env_val);
+                        }
                     }
                     for m in matches {
                         let path_str = m.path.to_string_lossy();
