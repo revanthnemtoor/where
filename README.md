@@ -113,6 +113,18 @@ PATH diagnostics
 
 ✓ PATH contains 14 directories
 
+### Search Flexibility
+You can easily redirect `where`'s search behavior using custom environments or recursive scanning:
+```bash
+# Search in a custom PATH instead of your current environment variable
+$ where --env-path /opt/custom/bin:/usr/local/bin python
+
+# Recursively search subdirectories up to a depth of 3
+$ where --env-path /opt --deep 3 java
+```
+
+## Advanced Usage
+
 ⚠ Duplicate:
 /bin
 

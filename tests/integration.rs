@@ -70,3 +70,36 @@ fn test_elf_parsing() {
     assert!(first_match.get("security").is_some(), "security should be populated");
     assert!(first_match.get("libs").is_some(), "libs should be populated");
 }
+
+#[test]
+fn test_env_path_and_deep() {
+    let dir = tempdir().unwrap();
+    let base_dir = dir.path().join("base");
+    let deep_dir = base_dir.join("deep").join("nested");
+    
+    fs::create_dir_all(&deep_dir).unwrap();
+    
+    let python_real = deep_dir.join("python");
+    fs::write(&python_real, b"print('hello')").unwrap();
+    fs::set_permissions(&python_real, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_where"))
+        .arg("--json")
+        .arg("--env-path")
+        .arg(base_dir.to_str().unwrap())
+        .arg("--deep")
+        .arg("3")
+        .arg("python")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let out_str = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&out_str).unwrap();
+    
+    let matches = json.get("python").unwrap().as_array().unwrap();
+    assert_eq!(matches.len(), 1);
+    
+    let path = matches[0].get("path").unwrap().as_str().unwrap();
+    assert!(path.contains("deep/nested/python"));
+}

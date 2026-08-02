@@ -128,6 +128,14 @@ struct Cli {
     #[arg(long)]
     libs: bool,
 
+    /// Simulate a custom PATH environment variable
+    #[arg(long)]
+    env_path: Option<String>,
+
+    /// Recursively search subdirectories up to a depth limit
+    #[arg(long)]
+    deep: Option<usize>,
+
     /// Commands to search for
     #[arg(required_unless_present_any = ["about", "generate_completions", "doctor"])]
     commands: Vec<String>,
@@ -341,27 +349,37 @@ fn main() {
     }
 
     let start_time = Instant::now();
-    let path_var = env::var("PATH").unwrap_or_default();
+    let path_var = if let Some(custom_path) = &cli.env_path {
+        custom_path.clone()
+    } else {
+        env::var("PATH").unwrap_or_default()
+    };
     let paths: Vec<PathBuf> = env::split_paths(&path_var).collect();
+    
+    let max_depth = cli.deep.unwrap_or(1);
 
     // Cache PATH contents in parallel
     let (path_cache, dirs_searched, files_examined) = paths
         .par_iter()
         .map(|dir| {
-            let mut local_cache = HashMap::new();
+            let mut local_cache: HashMap<String, Vec<PathBuf>> = HashMap::new();
             let mut local_files = 0;
             let mut local_dirs = 0;
             if dir.exists() {
-                local_dirs = 1;
-                if let Ok(entries) = fs::read_dir(dir) {
-                    for entry in entries.flatten() {
-                        if let Ok(file_type) = entry.file_type() {
-                            local_files += 1;
-                            if file_type.is_file() || file_type.is_symlink() {
-                                if let Ok(name) = entry.file_name().into_string() {
-                                    local_cache.entry(name).or_insert_with(Vec::new).push(entry.path());
-                                }
-                            }
+                local_dirs = 1; // Count the base directory itself
+                let walker = walkdir::WalkDir::new(dir)
+                    .min_depth(1)
+                    .max_depth(max_depth)
+                    .into_iter()
+                    .filter_map(Result::ok);
+                
+                for entry in walker {
+                    if entry.file_type().is_dir() {
+                        local_dirs += 1;
+                    } else if entry.file_type().is_file() || entry.file_type().is_symlink() {
+                        local_files += 1;
+                        if let Some(name) = entry.file_name().to_str() {
+                            local_cache.entry(name.to_string()).or_default().push(entry.path().to_path_buf());
                         }
                     }
                 }
