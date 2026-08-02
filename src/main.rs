@@ -233,6 +233,9 @@ impl ShellContext {
             // Zsh: cmd='...'
             // Fish: alias cmd '...'
             for line in aliases_env.lines() {
+                if line.contains("ll") {
+                    println!("DEBUG: checking line '{}'", line);
+                }
                 if let Some(def) = line.strip_prefix(&format!("alias {}=", cmd)) {
                     alias = Some(def.trim_matches('\'').trim_matches('"').to_string());
                     break;
@@ -696,10 +699,10 @@ fn main() {
             "fish" => {
                 println!(r#"function where
     set -lx WHERE_SHELL "fish"
-    set -lx WHERE_ALIASES (alias)
-    set -lx WHERE_FUNCTIONS (functions -n)
-    set -lx WHERE_BUILTINS (builtin -n)
-    set -lx WHERE_ABBRS (abbr --show)
+    set -lx WHERE_ALIASES (alias | string join \\n)
+    set -lx WHERE_FUNCTIONS (functions -n | string join \\n)
+    set -lx WHERE_BUILTINS (builtin -n | string join \\n)
+    set -lx WHERE_ABBRS (abbr --show | string join \\n)
     command where $argv
 end"#);
             }
