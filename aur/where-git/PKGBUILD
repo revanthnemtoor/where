@@ -1,0 +1,39 @@
+# Maintainer: Revanth Reddy Nemtoor <revanthreddyn123@gmail.com>
+
+pkgname=where-git
+pkgver=1.1.1.r0.gce827b7
+pkgrel=1
+pkgdesc="A modern, fast replacement for the which and where commands on Linux. (Git version)"
+arch=('x86_64' 'aarch64')
+url="https://github.com/revanthnemtoor/where"
+license=('MIT')
+depends=('gcc-libs' 'glibc')
+makedepends=('git' 'cargo')
+provides=('where' 'where-cmd')
+conflicts=('where' 'where-cmd')
+source=('git+https://github.com/revanthnemtoor/where.git')
+sha256sums=('SKIP')
+
+pkgver() {
+  cd where
+  git describe --long --tags | sed 's/\([^-]*-g\)/r\1/;s/-/./g' | sed 's/^v//'
+}
+
+build() {
+  cd where
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --release
+}
+
+check() {
+  cd where
+  cargo test --release
+}
+
+package() {
+  cd where
+  install -Dm755 "target/release/where" "$pkgdir/usr/bin/where"
+  install -Dm644 "where.1" "$pkgdir/usr/share/man/man1/where.1"
+  install -Dm644 "LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
