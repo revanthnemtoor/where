@@ -12,7 +12,7 @@ makedepends=('cargo')
 provides=('where')
 conflicts=('where')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/revanthnemtoor/where/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('01106e7bbf59824858628788b095026daed880cf5bea4d49bcba9b756faeef31')
+sha256sums=('bbecf3cefe02ca0485aa2ce3aae0076c65b88be5149ad24648b3561ccf759499')
 options=(!lto)
 
 build() {
