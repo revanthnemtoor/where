@@ -841,7 +841,7 @@ end"#);
                     let ino = meta.ino();
                     
                     if let Some(&index) = seen_inodes.get(&(dev, ino)) {
-                        matches_for_cmd[index].aliases.push(full_path.clone());
+                        matches_for_cmd[index].aliases.push(full_path.clone().to_path_buf());
                         duplicates_removed += 1;
                         continue;
                     }
@@ -850,7 +850,7 @@ end"#);
                 }
 
                 let mut m = Match {
-                    path: full_path.clone(),
+                    path: full_path.clone().to_path_buf().to_path_buf(),
                     canonical: None,
                     aliases: Vec::new(),
                     symlink_target: None,
