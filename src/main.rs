@@ -233,9 +233,6 @@ impl ShellContext {
             // Zsh: cmd='...'
             // Fish: alias cmd '...'
             for line in aliases_env.lines() {
-                if line.contains("ll") {
-                    println!("DEBUG: checking line '{}'", line);
-                }
                 if let Some(def) = line.strip_prefix(&format!("alias {}=", cmd)) {
                     alias = Some(def.trim_matches('\'').trim_matches('"').to_string());
                     break;
