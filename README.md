@@ -113,6 +113,13 @@ PATH diagnostics
 
 ✓ PATH contains 14 directories
 
+### Interactive TUI (fuzzy finder)
+If you want to quickly search through all executables in your `PATH` visually, use `--interactive` or `-i`:
+```bash
+$ where --interactive
+```
+This drops you into a blazing-fast fuzzy finder powered by `skim`. Selecting an executable will automatically run the standard `where` diagnostics on it.
+
 ### Search Flexibility
 You can easily redirect `where`'s search behavior using custom environments or recursive scanning:
 ```bash

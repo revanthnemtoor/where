@@ -136,8 +136,12 @@ struct Cli {
     #[arg(long)]
     deep: Option<usize>,
 
+    /// Launch interactive TUI to fuzzy find an executable
+    #[arg(short, long)]
+    interactive: bool,
+
     /// Commands to search for
-    #[arg(required_unless_present_any = ["about", "generate_completions", "doctor"])]
+    #[arg(required_unless_present_any = ["about", "generate_completions", "doctor", "interactive"])]
     commands: Vec<String>,
 }
 
@@ -466,6 +470,40 @@ fn main() {
         std::process::exit(exit_code);
     }
 
+    let mut commands = cli.commands.clone();
+
+    if cli.interactive {
+        use skim::prelude::*;
+        use std::io::Cursor;
+        
+        let mut keys: Vec<String> = path_cache.keys().cloned().collect();
+        keys.sort();
+        keys.dedup();
+        
+        let items_str = keys.join("\n");
+        let item_reader = SkimItemReader::default();
+        let items = item_reader.of_bufread(Cursor::new(items_str));
+        
+        let mut options_builder = SkimOptionsBuilder::default();
+        if !commands.is_empty() {
+            options_builder.query(commands[0].clone());
+        }
+        let options = options_builder.build().unwrap();
+        
+        if let Ok(out) = Skim::run_with(options, Some(items)) {
+            if !out.is_abort {
+                commands.clear();
+                for item in out.selected_items {
+                    commands.push(item.output().to_string());
+                }
+            } else {
+                std::process::exit(0);
+            }
+        } else {
+            std::process::exit(1);
+        }
+    }
+
     let mut duplicates_removed = 0;
     let mut results: HashMap<String, Vec<Match>> = HashMap::new();
     let mut missing_any = false;
@@ -473,7 +511,7 @@ fn main() {
     let is_structured = cli.json || cli.yaml || cli.csv;
     let fetch_all = is_structured || cli.trace;
 
-    for cmd in &cli.commands {
+    for cmd in &commands {
         let mut matches_for_cmd: Vec<Match> = Vec::new();
         let mut seen_inodes: HashMap<(u64, u64), usize> = HashMap::new();
         
@@ -772,7 +810,7 @@ fn main() {
             }
         }
     } else if cli.trace {
-        for cmd in &cli.commands {
+        for cmd in &commands {
             if let Some(matches) = results.get(cmd) {
                 for (idx, m) in matches.iter().enumerate() {
                     if idx > 0 { println!("---"); }
@@ -827,7 +865,7 @@ fn main() {
         }
     } else {
         let mut first_cmd = true;
-        for cmd in &cli.commands {
+        for cmd in &commands {
             if let Some(matches) = results.get(cmd) {
                 if !matches.is_empty() {
                     if !first_cmd && !cli.why {
