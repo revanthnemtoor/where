@@ -5,7 +5,7 @@ use directories::ProjectDirs;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::io;
@@ -53,6 +53,10 @@ struct Cli {
     #[arg(long)]
     json: bool,
 
+    /// Pretty print JSON
+    #[arg(long)]
+    pretty: bool,
+
     /// Machine-readable output (YAML)
     #[arg(long)]
     yaml: bool,
@@ -97,6 +101,10 @@ struct Cli {
     #[arg(long)]
     benchmark: bool,
 
+    /// Diagnose PATH issues
+    #[arg(long)]
+    doctor: bool,
+
     /// Generate shell completions
     #[arg(long, value_enum)]
     generate_completions: Option<Shell>,
@@ -106,7 +114,7 @@ struct Cli {
     about: bool,
 
     /// Commands to search for
-    #[arg(required_unless_present_any = ["about", "generate_completions"])]
+    #[arg(required_unless_present_any = ["about", "generate_completions", "doctor"])]
     commands: Vec<String>,
 }
 
@@ -132,7 +140,36 @@ struct Match {
     package: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    filesystem: Option<String>,
     executable: bool,
+}
+
+#[derive(Serialize)]
+struct TracePathInfo {
+    index: usize,
+    directory: PathBuf,
+    matched: bool,
+}
+
+#[derive(Serialize)]
+struct TraceTiming {
+    directories: usize,
+    entries: usize,
+    workers: usize,
+    elapsed_ms: f64,
+}
+
+#[derive(Serialize)]
+struct TraceBlock {
+    path: Vec<TracePathInfo>,
+    timing: TraceTiming,
+}
+
+#[derive(Serialize)]
+struct RootJson {
+    trace: Option<TraceBlock>,
+    results: HashMap<String, Vec<Match>>,
 }
 
 fn is_executable(path: &Path) -> bool {
@@ -210,6 +247,33 @@ fn get_version(path: &Path) -> Option<String> {
     None
 }
 
+fn get_filesystem(path: &Path) -> Option<String> {
+    unsafe {
+        let mut stat = std::mem::zeroed();
+        let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+        if libc::statfs(c_path.as_ptr(), &mut stat) == 0 {
+            let magic = stat.f_type as u64;
+            let fs_name = match magic {
+                0xEF53 => "ext4/ext3/ext2",
+                0x9123683E => "btrfs",
+                0x01021994 => "tmpfs",
+                0x58465342 => "xfs",
+                0x2FC12FC1 => "zfs",
+                0x6969 => "nfs",
+                0x4d44 => "vfat",
+                0x52654973 => "reiserfs",
+                0x00000187 => "autofs",
+                0x00000027 => "minix",
+                0x4244 => "hfs",
+                0x65735546 => "fuse",
+                _ => return Some(format!("Unknown (0x{:X})", magic)),
+            };
+            return Some(fs_name.to_string());
+        }
+    }
+    None
+}
+
 fn main() {
     let mut cli = Cli::parse();
 
@@ -256,7 +320,6 @@ fn main() {
     }
 
     let start_time = Instant::now();
-
     let path_var = env::var("PATH").unwrap_or_default();
     let paths: Vec<PathBuf> = env::split_paths(&path_var).collect();
 
@@ -294,6 +357,76 @@ fn main() {
             },
         );
 
+    let elapsed = start_time.elapsed();
+
+    if cli.doctor {
+        println!("PATH diagnostics\n");
+        let mut seen_dirs = HashSet::new();
+        let mut unreadable = 0;
+        let mut missing = 0;
+        
+        let mut relatives = 0;
+        
+        println!("{} PATH contains {} directories\n", "✓".green(), paths.len());
+        
+        for dir in &paths {
+            let mut ok = true;
+            if !dir.is_absolute() {
+                println!("{} Relative path:\n{}", "⚠".yellow(), dir.display());
+                relatives += 1;
+                ok = false;
+            } else if !dir.exists() {
+                println!("{} Missing:\n{}", "⚠".yellow(), dir.display());
+                missing += 1;
+                ok = false;
+            } else {
+                let canonical = fs::canonicalize(dir).unwrap_or_else(|_| dir.clone());
+                if !seen_dirs.insert(canonical.clone()) {
+                    println!("{} Duplicate:\n{}", "⚠".yellow(), dir.display());
+                    
+                    ok = false;
+                }
+                
+                if fs::read_dir(dir).is_err() {
+                    println!("{} Unreadable:\n{}", "⚠".yellow(), dir.display());
+                    unreadable += 1;
+                    ok = false;
+                }
+            }
+            if !ok { println!(); }
+        }
+        
+        if unreadable == 0 { println!("{} All directories readable\n", "✓".green()); }
+        
+        let mut shadowed_binaries = 0;
+        let mut first_seen: HashMap<String, PathBuf> = HashMap::new();
+        for dir in &paths {
+            if let Ok(entries) = fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    if let Ok(name) = entry.file_name().into_string() {
+                        if let Some(existing) = first_seen.get(&name) {
+                            if existing != &entry.path() {
+                                // it is technically shadowed, but only log it if we were doing a full dump.
+                                // Actually, printing every shadowed binary is too verbose.
+                                shadowed_binaries += 1;
+                            }
+                        } else {
+                            first_seen.insert(name, entry.path());
+                        }
+                    }
+                }
+            }
+        }
+        if shadowed_binaries == 0 {
+            println!("{} No shadowed binaries detected", "✓".green());
+        } else {
+            println!("{} {} shadowed binaries detected", "⚠".yellow(), shadowed_binaries);
+        }
+        
+        let exit_code = if missing > 0 || unreadable > 0 || relatives > 0 { 1 } else { 0 };
+        std::process::exit(exit_code);
+    }
+
     let mut duplicates_removed = 0;
     let mut results: HashMap<String, Vec<Match>> = HashMap::new();
     let mut missing_any = false;
@@ -314,8 +447,9 @@ fn main() {
             println!("\nMatched:");
         }
 
-        if cli.trace {
-            println!("PATH:");
+        let mut trace_paths_info = Vec::new();
+
+        if cli.trace || cli.json {
             for (i, p) in paths.iter().enumerate() {
                 let mut matched = false;
                 if let Some(cmd_paths) = path_cache.get(cmd) {
@@ -326,13 +460,23 @@ fn main() {
                         }
                     }
                 }
-                if matched {
-                    println!("{}. {:<25} {} match", i + 1, p.display(), "✓".green());
-                } else {
-                    println!("{}. {}", i + 1, p.display());
+                trace_paths_info.push(TracePathInfo {
+                    index: i + 1,
+                    directory: p.clone(),
+                    matched,
+                });
+            }
+        }
+        
+        if cli.trace && !cli.json {
+            println!("PATH:");
+            for tpi in &trace_paths_info {
+                if tpi.matched {
+                    
+                    // Since trace paths are printed before matches are processed, we just print matched.
+                    // But user wants "selected" vs "alias". We can determine this by processing matches first!
                 }
             }
-            println!();
         }
 
         if let Some(cmd_paths) = path_cache.get(cmd) {
@@ -367,6 +511,7 @@ fn main() {
                     hash: None,
                     package: None,
                     version: None,
+                    filesystem: None,
                     executable,
                 };
                 
@@ -408,6 +553,10 @@ fn main() {
                 if cli.version_info || fetch_all {
                     m.version = get_version(full_path);
                 }
+                
+                if cli.trace || fetch_all {
+                    m.filesystem = get_filesystem(full_path);
+                }
 
                 matches_for_cmd.push(m);
 
@@ -417,10 +566,40 @@ fn main() {
             }
         }
 
+        if cli.trace && !cli.json {
+            // Re-evaluating trace path printing to include selected vs alias
+            println!("PATH:");
+            for tpi in &trace_paths_info {
+                if tpi.matched {
+                    let mut is_alias = false;
+                    for m in &matches_for_cmd {
+                        if m.aliases.iter().any(|a| a.parent() == Some(&tpi.directory)) {
+                            is_alias = true;
+                            break;
+                        }
+                    }
+                    if is_alias {
+                        println!("{}. {:<25} {} alias", tpi.index, tpi.directory.display(), "✓".green());
+                    } else {
+                        println!("{}. {:<25} {} selected", tpi.index, tpi.directory.display(), "✓".green());
+                    }
+                } else {
+                    println!("{}. {}", tpi.index, tpi.directory.display());
+                }
+            }
+            println!();
+            println!("Scan");
+            println!("────");
+            println!("{:<11} : {}", "Directories", dirs_searched);
+            println!("{:<11} : {}", "Entries", files_examined);
+            println!("{:<11} : {}", "Workers", rayon::current_num_threads());
+            println!("{:<11} : {:.2} ms\n", "Elapsed", elapsed.as_secs_f64() * 1000.0);
+        }
+
         if matches_for_cmd.is_empty() {
             missing_any = true;
             
-            if !is_structured && !cli.plain {
+            if !is_structured && !cli.plain && !cli.trace {
                 println!("{}: Command not found.", cmd.red());
                 // Fuzzy search
                 let mut best_match = None;
@@ -442,14 +621,57 @@ fn main() {
     }
 
     if cli.json {
-        let json = serde_json::to_string_pretty(&results).unwrap();
-        println!("{}", json);
+        let output_json = if cli.trace {
+            let mut trace_paths = Vec::new();
+            for (i, p) in paths.iter().enumerate() {
+                let mut matched = false;
+                for matches in results.values() {
+                    for m in matches {
+                        if m.path.parent() == Some(p) || m.aliases.iter().any(|a| a.parent() == Some(p)) {
+                            matched = true;
+                            break;
+                        }
+                    }
+                    if matched { break; }
+                }
+                trace_paths.push(TracePathInfo {
+                    index: i + 1,
+                    directory: p.clone(),
+                    matched,
+                });
+            }
+            
+            let root = RootJson {
+                trace: Some(TraceBlock {
+                    path: trace_paths,
+                    timing: TraceTiming {
+                        directories: dirs_searched,
+                        entries: files_examined,
+                        workers: rayon::current_num_threads(),
+                        elapsed_ms: elapsed.as_secs_f64() * 1000.0,
+                    }
+                }),
+                results,
+            };
+            if cli.pretty {
+                serde_json::to_string_pretty(&root).unwrap()
+            } else {
+                serde_json::to_string(&root).unwrap()
+            }
+        } else {
+            if cli.pretty {
+                serde_json::to_string_pretty(&results).unwrap()
+            } else {
+                serde_json::to_string(&results).unwrap()
+            }
+        };
+        println!("{}", output_json);
     } else if cli.yaml {
         let yaml = serde_yaml::to_string(&results).unwrap();
         println!("{}", yaml);
     } else if cli.csv {
         let mut wtr = csv::Writer::from_writer(io::stdout());
-        wtr.write_record(&["command", "path", "canonical", "aliases", "owner", "permissions", "inode", "size", "sha256", "package", "version", "executable"]).unwrap();
+        wtr.write_record(&["command", "path", "canonical", "aliases", "owner", "permissions", "inode", "size", "sha256", "package", "version", "filesystem", "executable"]).unwrap();
         for (cmd, matches) in &results {
             for m in matches {
                 let aliases_str = m.aliases.iter().map(|p| p.to_string_lossy().into_owned()).collect::<Vec<_>>().join(";");
@@ -465,6 +687,7 @@ fn main() {
                     m.hash.clone().unwrap_or_default(),
                     m.package.clone().unwrap_or_default(),
                     m.version.clone().unwrap_or_default(),
+                    m.filesystem.clone().unwrap_or_default(),
                     m.executable.to_string(),
                 ]).unwrap();
             }
@@ -494,6 +717,10 @@ fn main() {
                     if let Some(ref ver) = m.version {
                         println!("\n{}:", "Version".bold());
                         println!("{}", ver.magenta());
+                    }
+                    if let Some(ref fs) = m.filesystem {
+                        println!("\n{}:", "Filesystem".bold());
+                        println!("{}", fs.cyan());
                     }
                     if let Some(ref hash) = m.hash {
                         println!("\n{}:", "SHA256".bold());
@@ -556,6 +783,9 @@ fn main() {
                                 if let Some(inode) = m.inode {
                                     extra.push(format!("inode: {}", inode));
                                 }
+                                if let Some(ref fs) = m.filesystem {
+                                    extra.push(format!("filesystem: {}", fs));
+                                }
                             }
                             if cli.show_size {
                                 if let Some(size) = m.size {
@@ -588,15 +818,13 @@ fn main() {
         }
     }
 
-    let elapsed = start_time.elapsed();
-
-    if cli.benchmark {
+    if cli.benchmark && !cli.trace {
         println!("Directories searched : {}", dirs_searched);
         println!("Files examined       : {}", files_examined);
         println!("Duplicates removed   : {}", duplicates_removed);
-        println!("Elapsed              : {:?}", elapsed);
-    } else if cli.time {
-        println!("Search completed in {:?}", elapsed);
+        println!("Elapsed              : {:.2} ms", elapsed.as_secs_f64() * 1000.0);
+    } else if cli.time && !cli.trace {
+        println!("Search completed in {:.2} ms", elapsed.as_secs_f64() * 1000.0);
     }
 
     if missing_any {

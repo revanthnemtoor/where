@@ -115,6 +115,14 @@ where --json python
 - `--color`: Force colored output.
 - `--about`: Print information about the tool's version, author, and license.
 
+## Exit Codes
+
+| Code | Meaning |
+|---|---|
+| `0` | Success (all commands found, or `--doctor` found no issues) |
+| `1` | At least one command missing, or `--doctor` found missing/unreadable directories |
+| `2` | Invalid arguments (handled by `clap`) |
+
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
