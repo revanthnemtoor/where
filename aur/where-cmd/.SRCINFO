@@ -1,6 +1,6 @@
 pkgbase = where-cmd
 	pkgdesc = A fast replacement for the which and where commands on Linux.
-	pkgver = 1.2.11
+	pkgver = 1.2.12
 	pkgrel = 1
 	url = https://github.com/revanthnemtoor/where
 	arch = x86_64
@@ -12,7 +12,7 @@ pkgbase = where-cmd
 	provides = where
 	conflicts = where
 	options = !lto
-	source = where-cmd-1.2.11.tar.gz::https://github.com/revanthnemtoor/where/archive/refs/tags/v1.2.11.tar.gz
-	sha256sums = 195a8e9ce590796dfe27d0c09e27959c2f89086fcc56cc7cc161c6fe07f979cf
+	source = where-cmd-1.2.12.tar.gz::https://github.com/revanthnemtoor/where/archive/refs/tags/v1.2.12.tar.gz
+	sha256sums = ff33c70ecf5f84eb6508c54155e5cee4d3c9990d4391a524c082d8af246c774b
 
 pkgname = where-cmd
