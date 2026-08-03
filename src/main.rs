@@ -179,6 +179,15 @@ struct Cli {
     /// Exclude specific directories from the search (can be used multiple times)
     #[arg(short = 'x', long)]
     exclude: Option<Vec<String>>,
+    /// Automatically discover other installed versions of the command
+    #[arg(long)]
+    versions: bool,
+}
+
+#[derive(Serialize, Clone)]
+pub struct VersionMatch {
+    pub path: PathBuf,
+    pub discovery_method: String,
 }
 
 #[derive(Serialize)]
@@ -197,6 +206,8 @@ struct Match {
     inode: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     owner: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    versions: Option<Vec<VersionMatch>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     permissions: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -420,6 +431,85 @@ fn get_version(path: &Path) -> Option<String> {
         }
     }
     None
+}
+
+fn discover_versions(cmd: &str, matches: &mut Vec<Match>, path_cache: &HashMap<String, Vec<PathBuf>>) {
+    let mut discovered = Vec::new();
+    let mut seen = HashSet::new();
+    
+    for m in matches.iter() {
+        if let Some(canonical) = &m.canonical {
+            seen.insert(canonical.clone());
+        }
+        seen.insert(m.path.clone());
+    }
+
+    let pattern = format!(r"^{}([-_]*[0-9.]+)$", regex::escape(cmd));
+    if let Ok(re) = Regex::new(&pattern) {
+        for (k, paths) in path_cache {
+            if re.is_match(k) {
+                for p in paths {
+                    if is_executable(p) {
+                        let can = fs::canonicalize(p).unwrap_or_else(|_| p.clone());
+                        if seen.insert(can.clone()) {
+                            discovered.push(VersionMatch {
+                                path: p.clone(),
+                                discovery_method: format!("{} (in PATH)", k),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut sibling_versions = Vec::new();
+    for m in matches.iter() {
+        let base_path = m.canonical.clone().unwrap_or_else(|| fs::canonicalize(&m.path).unwrap_or_else(|_| m.path.clone()));
+        seen.insert(base_path.clone());
+        for alias in &m.aliases {
+            seen.insert(alias.clone());
+            if let Ok(can) = fs::canonicalize(alias) {
+                seen.insert(can);
+            }
+        }
+        
+        if let Some(parent) = base_path.parent() {
+            if let Some(pname) = parent.file_name().and_then(|s| s.to_str()) {
+                if pname == "bin" || pname == "sbin" || pname == "libexec" {
+                    if let Some(grandparent) = parent.parent() {
+                        if let Some(great_grandparent) = grandparent.parent() {
+                            if let Ok(entries) = fs::read_dir(great_grandparent) {
+                                for entry in entries.flatten() {
+                                    if entry.file_type().map_or(false, |ft| ft.is_dir() || ft.is_symlink()) {
+                                        if entry.path() == grandparent { continue; }
+                                        let test_path = entry.path().join(pname).join(base_path.file_name().unwrap());
+                                        if test_path.exists() && is_executable(&test_path) {
+                                            let can = fs::canonicalize(&test_path).unwrap_or_else(|_| test_path.clone());
+                                            if seen.insert(can) {
+                                                sibling_versions.push(VersionMatch {
+                                                    path: test_path,
+                                                    discovery_method: "sibling discovery".to_string(),
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    discovered.extend(sibling_versions);
+    
+    if !discovered.is_empty() {
+        if let Some(first_match) = matches.first_mut() {
+            first_match.versions = Some(discovered);
+        }
+    }
 }
 
 fn get_filesystem(path: &Path) -> Option<String> {
@@ -825,6 +915,7 @@ end"#);
                     security: None,
                     libs: None,
                     executable: true,
+                    versions: None,
                 };
                 
                 // Deep inspection
@@ -913,6 +1004,7 @@ end"#);
                     security: None,
                     libs: None,
                     executable,
+                    versions: None,
                 };
                 
                 if fetch_all {
@@ -1095,6 +1187,11 @@ end"#);
                 }
             }
         }
+
+        if cli.versions {
+            discover_versions(cmd, &mut matches_for_cmd, &path_cache);
+        }
+
 
         results.insert(cmd.clone(), matches_for_cmd);
     }
@@ -1446,6 +1543,21 @@ end"#);
                             }
                         }
                     }
+                    if let Some(first_match) = matches.first() {
+                        if let Some(ref versions) = first_match.versions {
+                            if !versions.is_empty() {
+                                println!("\n📦 {}:", "Discovered Versions".bold());
+                                let mut sorted_versions = versions.clone();
+                                sorted_versions.sort_by(|a, b| a.path.cmp(&b.path));
+                                
+                                for (i, v) in sorted_versions.iter().enumerate() {
+                                    let prefix = if i == sorted_versions.len() - 1 { " └─" } else { " ├─" };
+                                    println!("{} {} {}", prefix, v.path.to_string_lossy().green(), format!("(via {})", v.discovery_method).truecolor(150, 150, 150));
+                                }
+                            }
+                        }
+                    }
+
                     first_cmd = false;
                 }
             }

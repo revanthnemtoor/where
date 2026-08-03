@@ -182,6 +182,15 @@ java
 
 # Exclude specific directories from being searched
 $ where --exclude /snap/bin --exclude ~/.cargo/bin ls
+
+# Discover other installed versions of a binary
+$ where --versions java
+java
+ └─ /usr/bin/java
+
+📦 Discovered Versions:
+ ├─ /usr/lib/jvm/java-11-openjdk/bin/java (via sibling discovery)
+ └─ /usr/lib/jvm/java-26-openjdk/bin/java (via sibling discovery)
 ```
 
 ## Advanced Usage
