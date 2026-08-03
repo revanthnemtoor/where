@@ -30,7 +30,7 @@ check() {
 package() {
   cd "where-$pkgver"
   install -Dm755 "target/release/where" "$pkgdir/usr/bin/where"
-  install -Dm644 "where.1" "$pkgdir/usr/share/man/man1/where.1"
+  install -Dm644 "docs/where.1" "$pkgdir/usr/share/man/man1/where.1"
   install -Dm644 "LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   
   # Install shell integration scripts

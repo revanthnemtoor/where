@@ -1,0 +1,120 @@
+.TH where 1 "August 2026" "where 1.0.0" "User Commands"
+.SH NAME
+where \- a fast replacement for the which/where commands on Linux
+.SH SYNOPSIS
+.B where
+[\fIOPTIONS\fR] [\fICOMMAND\fR...]
+.SH DESCRIPTION
+.B where
+helps you locate executables in your system's \fBPATH\fR. It provides features similar to the Windows `where` command, combined with Unix-specific enhancements like symlink resolution, filesystem diagnostics, provenance tracing, and structured JSON outputs.
+.SH OPTIONS
+.TP
+.BR \-a ", " \-\-all
+Print all matches (this is the default behavior).
+.TP
+.BR \-1 ", " \-\-first-only
+Stop searching after finding the first match.
+.TP
+.BR \-l ", " \-\-show-symlink
+Show symlink targets.
+.TP
+.BR \-s ", " \-\-show-size
+Show the file size in bytes.
+.TP
+.BR \-v ", " \-\-verbose
+Verbose output. Shows permissions, owner, filesystem, and inode details.
+.TP
+.BR \-\-json
+Machine-readable output formatted as JSON. Defaults to minified.
+.TP
+.BR \-\-pretty
+Pretty-print the JSON output.
+.TP
+.BR \-\-yaml
+Machine-readable output formatted as YAML.
+.TP
+.BR \-\-csv
+Machine-readable output formatted as CSV.
+.TP
+.BR \-\-plain
+Plain output (paths only, identical to traditional `which`).
+.TP
+.BR \-\-color
+Force colored output even when not attached to a TTY.
+.TP
+.BR \-\-hash
+Compute and display the SHA-256 hash of the matched executables.
+.TP
+.BR \-\-time
+Print the duration it took to complete the search.
+.TP
+.BR \-\-package
+Show the Arch Linux package owner of the binary (uses `pacman -Qo`).
+.TP
+.BR \-\-version-info
+Attempt to extract version information by executing the binary with `--version`.
+.TP
+.BR \-\-trace
+Show command provenance and resolution flow. Details exactly which PATH component was selected and which were shadowed/aliases.
+.TP
+.BR \-\-benchmark
+Show benchmark statistics of the scan (directories searched, entries, elapsed time).
+.TP
+.BR \-i ", " \-\-interactive
+Launch an interactive fuzzy finder (powered by skim) to search through all executables in PATH and run diagnostics on the selected ones.
+.TP
+.BR \-\-suggest
+If a command is not found locally, query the system package manager (pacman) to suggest packages that contain it.
+.TP
+.BR \-\-resolve
+Display the resolution hierarchy for a command, checking aliases, functions, builtins, abbreviations, and executables (requires shell integration).
+.TP
+.BR \-\-explain
+Provide a verbose explanation of why a specific execution target was selected based on shell context (requires shell integration).
+.TP
+.BR \-\-env\-path " \fIPATH\fR"
+Simulate a custom PATH environment variable (e.g., /usr/local/bin:/opt/bin).
+.TP
+.BR \-\-deep " \fIDEPTH\fR"
+Recursively search subdirectories up to the specified depth limit.
+.TP
+.BR \-\-arch
+Parse the ELF header to verify the architecture of the executable.
+.TP
+.BR \-\-security
+Parse the ELF header and check for setuid/setgid bits and linkage type (static/dynamic).
+.TP
+.BR \-\-libs
+Parse the ELF header and list all dynamic library dependencies (DT_NEEDED).
+.TP
+.BR \-\-doctor
+Diagnose PATH issues. Identifies duplicate directory entries, missing paths, dangerous relative paths, and shadowed binaries.
+.TP
+.BR \-\-generate-completions \fISHELL\fR
+Generate shell completions for the specified shell (e.g., bash, zsh, fish).
+.TP
+.BR \-\-about
+Print about information.
+.SH CONFIGURATION
+You can set default options in \fB~/.config/where/config.toml\fR. 
+For example:
+.br
+  color = true
+.br
+  output = "json"
+.br
+  package = true
+.SH EXIT CODES
+.TP
+.B 0
+Success (all commands found, or `--doctor` found no issues).
+.TP
+.B 1
+At least one command was not found, or `--doctor` flagged missing/unreadable directories.
+.TP
+.B 2
+Invalid arguments.
+.SH AUTHOR
+Revanth Reddy Nemtoor
+.SH BUGS
+Report bugs on GitHub: https://github.com/revanthnemtoor/where
