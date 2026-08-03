@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -438,6 +438,11 @@ fn get_filesystem(path: &Path) -> Option<String> {
 }
 
 fn main() {
+    use std::io::IsTerminal;
+    if std::env::var("WHERE_SHELL").is_err() && std::io::stdout().is_terminal() {
+        ensure_shell_hooks();
+    }
+
     let mut cli = Cli::parse();
 
     if let Some(proj_dirs) = ProjectDirs::from("", "", "where") {
@@ -1489,5 +1494,53 @@ fn suggest_packages(cmd: &str) {
                 println!("    npm install -g {}", pkg.bold());
             }
         }
+    }
+}
+
+fn ensure_shell_hooks() {
+    let home = env::var("HOME").unwrap_or_default();
+    if home.is_empty() { return; }
+    
+    let mut installed_any = false;
+    
+    let bashrc = PathBuf::from(&home).join(".bashrc");
+    if bashrc.exists() {
+        if let Ok(content) = fs::read_to_string(&bashrc) {
+            if !content.contains("where --init bash") {
+                if let Ok(mut file) = fs::OpenOptions::new().append(true).open(&bashrc) {
+                    let _ = writeln!(file, "\n# where shell integration\neval \"$(where --init bash)\"");
+                    installed_any = true;
+                }
+            }
+        }
+    }
+    
+    let zshrc = PathBuf::from(&home).join(".zshrc");
+    if zshrc.exists() {
+        if let Ok(content) = fs::read_to_string(&zshrc) {
+            if !content.contains("where --init zsh") {
+                if let Ok(mut file) = fs::OpenOptions::new().append(true).open(&zshrc) {
+                    let _ = writeln!(file, "\n# where shell integration\neval \"$(where --init zsh)\"");
+                    installed_any = true;
+                }
+            }
+        }
+    }
+    
+    let fish_config = PathBuf::from(&home).join(".config/fish/config.fish");
+    if fish_config.exists() {
+        if let Ok(content) = fs::read_to_string(&fish_config) {
+            if !content.contains("where --init fish") {
+                if let Ok(mut file) = fs::OpenOptions::new().append(true).open(&fish_config) {
+                    let _ = writeln!(file, "\n# where shell integration\nwhere --init fish | source");
+                    installed_any = true;
+                }
+            }
+        }
+    }
+    
+    if installed_any {
+        println!("{}", "[where] Automatically installed shell hooks into your RC files.".cyan());
+        println!("{}", "[where] Please restart your terminal to enable shell integration!".cyan());
     }
 }
