@@ -1,4 +1,4 @@
-.TH where 1 "August 2026" "where 1.2.11" "User Commands"
+.TH where 1 "August 2026" "where 1.2.12" "User Commands"
 .SH NAME
 where \- a fast replacement for the which/where commands on Linux
 .SH SYNOPSIS
@@ -53,6 +53,15 @@ Show the Arch Linux package owner of the binary (uses `pacman -Qo`).
 .TP
 .BR \-\-version-info
 Attempt to extract version information by executing the binary with `--version`.
+.TP
+.BR \-m ", " \-\-match " \fIPATTERN\fR"
+Treat the search term as a regex/wildcard and find all matching executables.
+.TP
+.BR \-\-chain
+Follow and print the full symlink chain recursively.
+.TP
+.BR \-x ", " \-\-exclude " \fIDIR\fR"
+Exclude specific directories from the search (can be used multiple times).
 .TP
 .BR \-\-trace
 Show command provenance and resolution flow. Details exactly which PATH component was selected and which were shadowed/aliases.

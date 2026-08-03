@@ -1,3 +1,4 @@
+use regex::Regex;
 use clap::{CommandFactory, Parser};
 use clap_complete::{generate, Shell};
 use colored::{control, Colorize};
@@ -167,8 +168,17 @@ struct Cli {
     engine: Option<String>,
 
     /// Commands to search for
-    #[arg(required_unless_present_any = ["about", "generate_completions", "doctor", "interactive", "init"])]
+    #[arg(required_unless_present_any = ["about", "generate_completions", "doctor", "interactive", "init", "match_pattern"])]
     commands: Vec<String>,
+    /// Follow and print the full symlink chain
+    #[arg(long)]
+    chain: bool,
+    /// Treat the search term as a regex/wildcard and find all matching executables
+    #[arg(short = 'm', long = "match")]
+    match_pattern: Option<String>,
+    /// Exclude specific directories from the search (can be used multiple times)
+    #[arg(short = 'x', long)]
+    exclude: Option<Vec<String>>,
 }
 
 #[derive(Serialize)]
@@ -179,6 +189,8 @@ struct Match {
     aliases: Vec<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     symlink_target: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    symlink_chain: Option<Vec<PathBuf>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     size: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -513,7 +525,16 @@ fn main() {
     } else {
         env::var("PATH").unwrap_or_default()
     };
-    let paths: Vec<PathBuf> = env::split_paths(&path_var).collect();
+    let paths: Vec<PathBuf> = env::split_paths(&path_var)
+        .filter(|p| {
+            if let Some(excludes) = &cli.exclude {
+                let p_str = p.to_string_lossy();
+                !excludes.iter().any(|ex| p_str.contains(ex))
+            } else {
+                true
+            }
+        })
+        .collect();
     
     let max_depth = cli.deep.unwrap_or(1);
     
@@ -632,6 +653,25 @@ fn main() {
     }
 
     let mut commands = cli.commands.clone();
+
+    if let Some(pattern) = &cli.match_pattern {
+        if let Ok(re) = Regex::new(pattern) {
+            let mut matched: Vec<String> = path_cache.keys()
+                .filter(|k| re.is_match(k))
+                .cloned()
+                .collect();
+            matched.sort();
+            commands.extend(matched);
+        } else {
+            eprintln!("{}", format!("Invalid regex pattern: {}", pattern).red());
+            std::process::exit(2);
+        }
+
+        if commands.is_empty() {
+            eprintln!("{}", "No executables matched the given pattern.".red());
+            std::process::exit(1);
+        }
+    }
 
     if cli.interactive {
         use skim::prelude::*;
@@ -772,6 +812,7 @@ end"#);
                     canonical: None,
                     aliases: Vec::new(),
                     symlink_target: None,
+                    symlink_chain: None,
                     size: None,
                     inode: None,
                     owner: None,
@@ -859,6 +900,7 @@ end"#);
                     canonical: None,
                     aliases: Vec::new(),
                     symlink_target: None,
+                    symlink_chain: None,
                     size: None,
                     inode: None,
                     owner: None,
@@ -878,9 +920,29 @@ end"#);
                 }
 
                 if let Some(sym_meta) = &sym_meta {
-                    if cli.show_symlink || cli.verbose || fetch_all {
+                    if cli.show_symlink || cli.verbose || fetch_all || cli.chain {
                         if sym_meta.file_type().is_symlink() {
-                            m.symlink_target = fs::read_link(full_path).ok();
+                            if let Ok(target) = fs::read_link(full_path) {
+                                m.symlink_target = Some(target.clone());
+                                if cli.chain {
+                                    let mut chain = vec![target.clone()];
+                                    let mut current = target;
+                                    for _ in 0..10 {
+                                        let current_full = if current.is_absolute() {
+                                            current.clone()
+                                        } else {
+                                            full_path.parent().unwrap().join(&current)
+                                        };
+                                        if let Ok(next_target) = fs::read_link(&current_full) {
+                                            chain.push(next_target.clone());
+                                            current = next_target;
+                                        } else {
+                                            break;
+                                        }
+                                    }
+                                    m.symlink_chain = Some(chain);
+                                }
+                            }
                         }
                     }
                 }
@@ -1317,7 +1379,11 @@ end"#);
                             print!(" └─ {}", path_str.red());
                         }
                         
-                        if let Some(ref target) = m.symlink_target {
+                        if let Some(ref chain) = m.symlink_chain {
+                            for target in chain {
+                                print!(" -> {}", target.to_string_lossy().cyan());
+                            }
+                        } else if let Some(ref target) = m.symlink_target {
                             print!(" -> {}", target.to_string_lossy().cyan());
                         }
                         println!();

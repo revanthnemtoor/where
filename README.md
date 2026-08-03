@@ -171,6 +171,17 @@ $ where --env-path /opt/custom/bin:/usr/local/bin python
 
 # Recursively search subdirectories up to a depth of 3
 $ where --env-path /opt --deep 3 java
+
+# Use regex or wildcards to find matching executables
+$ where --match "python3.*"
+
+# Show the full symlink chain for a command
+$ where -v --chain java
+java
+ └─ /usr/bin/java -> /etc/alternatives/java -> /usr/lib/jvm/java-17-openjdk/bin/java
+
+# Exclude specific directories from being searched
+$ where --exclude /snap/bin --exclude ~/.cargo/bin ls
 ```
 
 ## Advanced Usage
