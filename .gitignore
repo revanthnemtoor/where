@@ -6,3 +6,4 @@ aur/*/src/
 aur/*/*.pkg.tar.*
 aur/*/*.tar.gz
 aur/*/*.tar.zst
+aur/*/where/
