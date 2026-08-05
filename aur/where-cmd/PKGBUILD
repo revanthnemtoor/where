@@ -1,7 +1,7 @@
 # Maintainer: Revanth Reddy Nemtoor <developerrevanth123@gmail.com>
 
 pkgname=where-cmd
-pkgver=1.3.0
+pkgver=1.3.1
 pkgrel=1
 pkgdesc="A fast replacement for the which and where commands on Linux."
 arch=('x86_64' 'aarch64')
@@ -12,7 +12,7 @@ makedepends=('cargo')
 provides=('where')
 conflicts=('where')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/revanthnemtoor/where/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('81d62168326846ff6386dbf316ce1c9edf493426ff2cc19e09622f7faac540c0')
+sha256sums=('37b713181dd4d875194a2641321328bea0a527e9e07075f1624933cff7e23cd1')
 options=(!lto)
 
 build() {
