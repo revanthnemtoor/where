@@ -13,6 +13,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AUR `where-git` Package**: Restored installation of shell integration scripts (`where.bash`, `where.fish`, `where.zsh`) which were missing in the git package.
 - **Gitignore**: Added `aur/*/where/` to ignore the bare git repositories created by `makepkg` during AUR git builds.
 
+## [1.3.0] - 2026-08-03
+
+### Added
+- **Versions Flag (`--versions`)**: Discover other installed versions of a binary via sibling discovery.
+
+## [1.2.12] - 2026-08-03
+
+*(Includes features and fixes from v1.2.0 through v1.2.12)*
+
+### Added
+- **Search Flexibility**: Added `--match` (regex/wildcard matching), `--chain` (full symlink chains), and `--exclude` flags.
+- **Shell Integration Hooks**: Automatically install shell hooks into RC files for Bash, Zsh, and Fish.
+- **Shell Context**: Native shell integration for resolving aliases, functions, built-ins, abbreviations, and environment variables.
+- **Package Manager Suggestions (`--suggest`)**: Multi-ecosystem package suggestions (supports `pacman`, `apt`, `dnf`, `brew`, `cargo`, `npm`).
+- **Interactive TUI (`--interactive` / `-i`)**: Blazing-fast fuzzy finder powered by `skim`.
+- **Custom Environments**: Added `--env-path` and `--deep` flags for flexible, recursive environment scanning.
+- **ELF Diagnostics**: Implemented native ELF parsing to provide `--arch`, `--libs`, and `--security` diagnostics.
+- **AUR Packages**: Added official `where` and `where-cmd` AUR PKGBUILDs.
+
+### Fixed
+- Fixed multiple bugs with correctly escaping newlines in Fish and Bash integration scripts.
+- Fixed multi-line environment variable formatting and structured JSON for shell contexts.
+- Added explicit non-ELF warning and filtered the TUI to only show executables.
+
+## [1.1.1] - 2026-08-02
+
+### Added
+- **Quiet Mode (`-q` / `--quiet`)**: Suppress output and only return exit codes (useful for scripting).
+- Added `crates.io` metadata for initial Cargo publishing.
+
 ## [1.0.0] - 2026-08-02
 
 ### Added
