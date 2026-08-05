@@ -21,6 +21,16 @@ cargo install where-cmd
 ```
 *(The binary is installed as `where`)*
 
+### From Arch User Repository (AUR)
+If you are on Arch Linux, you can install `where` from the AUR using your favorite helper:
+```bash
+# Stable release
+yay -S where-cmd
+
+# Or the latest git version
+yay -S where-git
+```
+
 ### From Source
 To build and install the command from source, you must have [Rust and Cargo](https://rustup.rs/) installed.
 
@@ -80,7 +90,6 @@ ls
     security: linked: dynamic
     libraries: libcap.so.2, libc.so.6
 ```
-```
 
 ### Provenance Tracing
 If you are debugging a broken environment, use `--trace` to see precisely how a binary was resolved:
@@ -112,6 +121,15 @@ $ where --doctor
 PATH diagnostics
 
 ✓ PATH contains 14 directories
+
+⚠ Duplicate:
+/bin
+
+⚠ Missing:
+/fake/missing/dir
+
+⚠ 6926 shadowed binaries detected
+```
 
 ### Interactive TUI (fuzzy finder)
 If you want to quickly search through all executables in your `PATH` visually, use `--interactive` or `-i`:
@@ -194,16 +212,6 @@ java
 ```
 
 ## Advanced Usage
-
-⚠ Duplicate:
-/bin
-
-⚠ Missing:
-/fake/missing/dir
-
-⚠ 6926 shadowed binaries detected
-```
-
 ### Persistent Configuration
 You can configure default flags by placing a `config.toml` file in `~/.config/where/config.toml`:
 ```toml
